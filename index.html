@@ -97,7 +97,9 @@
     // Puedes inicializarla aquí con una posición cercana a la esperada del avión,
     // o dejarla en (0,0,0) y que la lógica del `if` en animate la actualice en el primer frame.
     camera.position.set(0, 1.6, 3);
-    const cameraOffset = new THREE.Vector3(0, 2, 6); // Se crea una sola vez
+    const cameraOffset = new THREE.Vector3(0, 2.5, 4); // Se crea una sola vez
+
+
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -117,15 +119,31 @@
 
     const defaultMaterial = new CANNON.Material("default");
     const airplanePhysicsMaterial = new CANNON.Material("airplaneMaterial");
+    const floorMaterial = new CANNON.Material("floorMaterial"); // <--- Nuevo material para el suelo
+
+
+
 
     const airplaneObstacleContactMaterial = new CANNON.ContactMaterial(
       airplanePhysicsMaterial,
-      defaultMaterial,
+      defaultMaterial, // Para colisiones con obstáculos generales
       {
         friction: 0.1,
         restitution: 0.1,
       }
     );
+    world.addContactMaterial(airplaneObstacleContactMaterial);
+
+    // Nuevo ContactMaterial para la colisión entre el avión y el suelo
+    const airplaneFloorContactMaterial = new CANNON.ContactMaterial(
+      airplanePhysicsMaterial,
+      floorMaterial, // Para colisiones con el suelo
+      {
+        friction: 0, // Puedes ajustar la fricción para que el robot no patine tanto
+        restitution: 0.0, // Que no rebote en el suelo
+      }
+    );
+    world.addContactMaterial(airplaneFloorContactMaterial); // ¡No olvides añadirlo al mundo!
     world.addContactMaterial(airplaneObstacleContactMaterial);
 
 
@@ -150,13 +168,16 @@
 
 
     loader.load(
-      "avion.glb",
+      "robot.glb",
       (gltf) => {
         airplaneModel = gltf.scene;
-        airplaneModel.position.set(0, 1, 0);
+        airplaneModel.position.set(1.3, 2.24, 0);
+        airplaneModel.scale.set(0.3, 0.3, 0.3); // explícito y claro
+        // deberías ver valores ≠ 0
+
         scene.add(airplaneModel);
 
-        const boxShape = new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 1));
+        const boxShape = new CANNON.Box(new CANNON.Vec3(0.5, 0, 1));
         airplaneBody = new CANNON.Body({
           mass: 1,
           shape: boxShape,
@@ -184,7 +205,7 @@
           actionRotate.play();
           actionRotate.paused = true;
 
-          action1 = mixer.clipAction(gltf.animations[9]);
+          action1 = mixer.clipAction(gltf.animations[6]);
           action1.loop = THREE.LoopRepeat;
           action1.enabled = true;
           action1.play();
@@ -200,10 +221,12 @@
       "escena.glb",
       (gltf) => {
         const sceneModel = gltf.scene;
+        console.log(sceneModel);
         scene.add(sceneModel);
 
         sceneModel.traverse((child) => {
-          if (child.isMesh && child.name.startsWith("colision")) {
+          // Modifica esta parte
+          if (child.isMesh && (child.name.startsWith("colision") || child.name === "calle")) {
             child.geometry.computeBoundingBox();
             const size = new THREE.Vector3();
             child.geometry.boundingBox.getSize(size);
@@ -212,10 +235,17 @@
               new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
             );
 
+            let bodyMaterial;
+            if (child.name === "calle") {
+              bodyMaterial = floorMaterial; // Asigna el material del suelo
+            } else {
+              bodyMaterial = defaultMaterial; // Los demás obstáculos usan el material por defecto
+            }
+
             const obstacleBody = new CANNON.Body({
               mass: 0,
               shape: obstacleShape,
-              material: defaultMaterial,
+              material: bodyMaterial, // <--- Usa el material determinado
               position: new CANNON.Vec3(
                 child.getWorldPosition(new THREE.Vector3()).x,
                 child.getWorldPosition(new THREE.Vector3()).y,
@@ -238,30 +268,75 @@
       }
     );
 
+    // world.addEventListener("beginContact", (event) => {
+    //   const bodyA = event.bodyA;
+    //   const bodyB = event.bodyB;
+
+    //   if (
+    //     (bodyA === airplaneBody && bodyB.mass === 0) ||
+    //     (bodyB === airplaneBody && bodyA.mass === 0)
+    //   ) {
+    //     console.log("¡COLISIÓN DETECTADA POR CANNON.JS!");
+    //     if (!gameOver) {
+    //       gameOver = true;
+    //       const gameOverText = document.getElementById("gameOverText");
+    //       gameOverText.style.display = "block";
+
+    //       if (mixer) {
+    //         mixer.timeScale = 0;
+    //       }
+    //       joystickInput.strafe = 0;
+    //       joystickInput.forward = 0;
+    //       if (airplaneBody) {
+    //         airplaneBody.velocity.set(0, 0, 0);
+    //         airplaneBody.angularVelocity.set(0, 0, 0);
+    //       }
+    //     }
+    //   }
+    // });
     world.addEventListener("beginContact", (event) => {
       const bodyA = event.bodyA;
       const bodyB = event.bodyB;
 
-      if (
-        (bodyA === airplaneBody && bodyB.mass === 0) ||
-        (bodyB === airplaneBody && bodyA.mass === 0)
-      ) {
-        console.log("¡COLISIÓN DETECTADA POR CANNON.JS!");
+      // Accede a los materiales de los cuerpos directamente del evento de contacto
+      const materialA = bodyA.material;
+      const materialB = bodyB.material;
+
+      // Identifica si uno de los cuerpos es el avión y el otro es un cuerpo estático
+      const isAirplaneA = bodyA === airplaneBody;
+      const isAirplaneB = bodyB === airplaneBody;
+
+      // Verifica si el avión colisionó con un obstáculo (usando defaultMaterial)
+      const collidedWithObstacle =
+        (isAirplaneA && materialB === defaultMaterial) ||
+        (isAirplaneB && materialA === defaultMaterial);
+
+      // Verifica si el avión colisionó con el suelo (usando floorMaterial)
+      const collidedWithFloor =
+        (isAirplaneA && materialB === floorMaterial) ||
+        (isAirplaneB && materialA === floorMaterial);
+
+      if (collidedWithObstacle) {
+        console.log("¡COLISIÓN CON OBSTÁCULO DETECTADA! GAME OVER.");
         if (!gameOver) {
           gameOver = true;
           const gameOverText = document.getElementById("gameOverText");
           gameOverText.style.display = "block";
 
           if (mixer) {
-            mixer.timeScale = 0;
+            mixer.timeScale = 0; // Detiene las animaciones del robot
           }
           joystickInput.strafe = 0;
           joystickInput.forward = 0;
           if (airplaneBody) {
-            airplaneBody.velocity.set(0, 0, 0);
+            airplaneBody.velocity.set(0, 0, 0); // Detiene el movimiento del robot
             airplaneBody.angularVelocity.set(0, 0, 0);
           }
         }
+      } else if (collidedWithFloor) {
+        console.log("Colisión con el suelo (calle)");
+        // Aquí puedes añadir lógica si quieres que pase algo al tocar el suelo
+        // por ejemplo, reducir un poco la velocidad si está en el aire y aterriza, etc.
       }
     });
 
@@ -366,120 +441,54 @@
 
 
       if (airplaneModel && airplaneBody) {
-        // const forceSpeedMagnitude = 50;
+const maxRotation = 0.5;
+const strafe = joystickInput.strafe;
 
-        // const lateralForce = joystickInput.strafe *  forceSpeedMagnitude; // multiplicá para ajustar fuerza lateral
-        // const forwardForce = -joystickInput.forward * forceSpeedMagnitude;
-        // airplaneBody.applyLocalForce(
-        //   new CANNON.Vec3(lateralForce, 0, forwardForce),
-        //   new CANNON.Vec3(0, 0, 0)
-        // );
-        // airplaneModel.position.copy(airplaneBody.position);
-        // airplaneModel.quaternion.copy(airplaneBody.quaternion);
-             const forceForwardSpeedMagnitude = 2;
-          const forceLateralSpeedMagnitude = 2;
+// Movimiento del cuerpo físico (lo tuyo)
+const maxLateralOffset = 4;
+const lateralSpeed = 3;
+const currentX = airplaneBody.position.x;
 
-        const lateralForce = joystickInput.strafe *  forceLateralSpeedMagnitude; // multiplicá para ajustar fuerza lateral
-        const forwardForce = -joystickInput.forward * forceForwardSpeedMagnitude;
-        // tempLocalForce.set(0, 0, forwardForce * movementSpeed);
-        // airplaneBody.applyLocalForce(tempLocalForce, CANNON.Vec3.ZERO);
-tempLocalForce.set(lateralForce * movementSpeed, 0, forwardForce * movementSpeed); 
-airplaneBody.applyLocalForce(tempLocalForce, CANNON.Vec3.ZERO);
+airplaneBody.velocity.z = -2;
 
-        
+if (strafe < 0 && currentX > -maxLateralOffset) {
+  airplaneBody.velocity.x = -lateralSpeed;
+} else if (strafe > 0 && currentX < maxLateralOffset) {
+  airplaneBody.velocity.x = lateralSpeed;
+} else {
+  airplaneBody.velocity.x = 0;
+}
 
+// Copiar posición y rotación física al modelo visual
+airplaneModel.position.copy(airplaneBody.position);
+airplaneModel.quaternion.copy(airplaneBody.quaternion);
 
-        // const targetAngularVelocityY = lateralForce * rotationSpeed;
-        // airplaneBody.angularVelocity.y = targetAngularVelocityY;
+// Convertir la rotación física a Euler para editar la rotación Y (inclinación)
+const euler = new THREE.Euler().setFromQuaternion(airplaneModel.quaternion);
 
-        // if (Math.abs(lateralForce) < 0.1) {
-        //   const currentVelocity = airplaneBody.velocity;
+// Aplicar la rotación extra en Y (inclinación por strafe)
+euler.y += maxRotation * strafe;
 
-        //   const localVelocity = airplaneBody.quaternion.vmult(currentVelocity, new CANNON.Vec3());
-        //   localVelocity.x *= 0.9; // Reduce lateral velocity
-        //   airplaneBody.velocity.copy(airplaneBody.quaternion.vmult(localVelocity, new CANNON.Vec3(), true)); // true para invertir la rotación
-        // }
+// Actualizar la rotación del modelo con la rotación compuesta
+airplaneModel.quaternion.setFromEuler(euler);
 
+// El resto de tu código sigue igual:
+const antiGravity = new CANNON.Vec3(
+  0,
+  -world.gravity.y * airplaneBody.mass,
+  0
+);
+airplaneBody.applyLocalForce(antiGravity, new CANNON.Vec3(0, 0, 0));
 
-        airplaneModel.position.copy(airplaneBody.position);
-        airplaneModel.quaternion.copy(airplaneBody.quaternion);
+const relativeCameraOffset = cameraOffset.clone().applyQuaternion(airplaneModel.quaternion);
+const targetCameraPos = airplaneModel.position.clone().add(relativeCameraOffset);
 
+camera.position.copy(targetCameraPos);
 
+const lookAtTarget = airplaneModel.position.clone();
+lookAtTarget.y -= -1.2;
 
-
-        // const forwardForce = -joystickInput.forward; // Adelante/Atrás (Z)
-        // const lateralForce = joystickInput.strafe; // Izquierda/Derecha (X)
-
-        // tempLocalForce.set(0, 0, forwardForce * movementSpeed);
-        // airplaneBody.applyLocalForce(tempLocalForce, CANNON.Vec3.ZERO);
-
-        // const targetAngularVelocityY = lateralForce * rotationSpeed;
-        // airplaneBody.angularVelocity.y = targetAngularVelocityY;
-
-        // if (Math.abs(lateralForce) < 0.1) {
-        //   const currentVelocity = airplaneBody.velocity;
-
-        //   const localVelocity = airplaneBody.quaternion.vmult(currentVelocity, new CANNON.Vec3());
-        //   localVelocity.x *= 0.9; // Reduce lateral velocity
-        //   airplaneBody.velocity.copy(airplaneBody.quaternion.vmult(localVelocity, new CANNON.Vec3(), true)); // true para invertir la rotación
-        // }
-
-        // airplaneModel.position.copy(airplaneBody.position);
-        // airplaneModel.quaternion.copy(airplaneBody.quaternion);
-
-        // airplaneBody.applyLocalForce(
-        //   new CANNON.Vec3(lateralForce, 0, forwardForce),
-        //   new CANNON.Vec3(0, 0, 0)
-        // );
-
-
-
-
-
-
-
-        const antiGravity = new CANNON.Vec3(
-          0,
-          -world.gravity.y * airplaneBody.mass,
-          0
-        );
-        airplaneBody.applyLocalForce(antiGravity, new CANNON.Vec3(0, 0, 0));
-
-        // Actualizar posición y rotación del modelo con el cuerpo físico
-
-
-
-
-        // --- Lógica de la cámara ---
-
-        // const relativeCameraOffset = cameraOffset
-        //             .clone()
-        //             .applyQuaternion(airplaneModel.quaternion);
-        //           // Posición objetivo donde queremos que esté la cámara
-        //           const targetCameraPos = airplaneModel.position
-        //             .clone()
-        //             .add(relativeCameraOffset);
-        //           if (smoothedCameraPosition.lengthSq() === 0) {
-        //             smoothedCameraPosition.copy(targetCameraPos);
-        //           }
-        //           smoothedCameraPosition.lerp(targetCameraPos, 0.1); // <-- Ajusta este valor para más/menos suavizado
-        //           // Actualizamos la posición de la cámara con la posición suavizada
-        //           camera.position.copy(smoothedCameraPosition);
-
-        //           // La cámara siempre mira al centro del modelo del avión
-        //           camera.lookAt(airplaneModel.position);
-
-
-
-        const relativeCameraOffset = cameraOffset
-          .clone()
-          .applyQuaternion(airplaneModel.quaternion);
-        const targetCameraPos = airplaneModel.position
-          .clone()
-          .add(relativeCameraOffset);
-
-        camera.position.copy(targetCameraPos);
-        camera.lookAt(airplaneModel.position);
+camera.lookAt(lookAtTarget);
       }
 
       updateAnimationWithJoystick(
