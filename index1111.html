@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Three.js con Joystick (Paso 5 - Movimiento Corregido)</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
+      }
+
+      /* Estilos del Joystick */
+      #joystick {
+        position: absolute;
+        bottom: 35px;
+        width: 80px;
+        height: 80px;
+        background: rgba(126, 126, 126, 0.5);
+        border: #444 solid medium;
+        border-radius: 50%;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        touch-action: none;
+        user-select: none;
+      }
+
+      #thumb {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #fff;
+      }
+      #gameOverText {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: red; /* Color rojo para el texto */
+        font-size: 5em; /* Tamaño grande para que sea visible */
+        font-family: Arial, sans-serif; /* Fuente legible */
+        font-weight: bold; /* Negrita */
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7); /* Sombra para mejor visibilidad */
+        z-index: 100; /* Asegura que esté por encima de todo */
+        pointer-events: none; /* Permite que los clics pasen a través del texto si es necesario */
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="joystick">
+      <div id="thumb"></div>
+    </div>
+
+    <div id="gameOverText" style="display: none">GAME OVER</div>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/",
+          "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+      import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+      import * as CANNON from "cannon-es";
+
+      // --- Setup Three.js ---
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      camera.position.set(0, 1.6, 3);
+      const cameraOffset = new THREE.Vector3(0, 2, 6);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      // Luces
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(5, 10, 7.5);
+      scene.add(light);
+
+      const ambient = new THREE.AmbientLight(0x404040);
+      scene.add(ambient);
+
+      // --- Setup Cannon-es (físicas) ---
+      const world = new CANNON.World();
+      world.gravity.set(0, 0, 0); // Gravedad en cero, ya que el avión "vuela"
+
+      // Definir materiales de colisión y materiales de contacto
+      const defaultMaterial = new CANNON.Material("default");
+      const airplanePhysicsMaterial = new CANNON.Material("airplaneMaterial");
+
+      const airplaneObstacleContactMaterial = new CANNON.ContactMaterial(
+        airplanePhysicsMaterial,
+        defaultMaterial,
+        {
+          friction: 0.1,
+          restitution: 0.1,
+        }
+      );
+      world.addContactMaterial(airplaneObstacleContactMaterial);
+
+      // --- Variables globales ---
+      let airplaneModel;
+      let airplaneBody;
+      let mixer = null;
+      let action1, actionRotate;
+      let gameOver = false;
+
+      // Loaders
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath(
+        "https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/libs/draco/gltf/"
+      );
+      dracoLoader.setDecoderConfig({ type: "js" });
+
+      const loader = new GLTFLoader();
+      loader.setDRACOLoader(dracoLoader);
+
+      loader.load(
+        "avion.glb",
+        (gltf) => {
+          airplaneModel = gltf.scene;
+          airplaneModel.position.set(0, 1, 0);
+          scene.add(airplaneModel);
+
+          const boxShape = new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 1));
+          airplaneBody = new CANNON.Body({
+            mass: 1,
+            shape: boxShape,
+            material: airplanePhysicsMaterial,
+            position: new CANNON.Vec3(
+              airplaneModel.position.x,
+              airplaneModel.position.y,
+              airplaneModel.position.z
+            ),
+            linearDamping: 0.95, // Se mantiene el damping lineal
+            angularDamping: 0.95, // <--- Este damping es crucial para que el giro se detenga
+          });
+          world.addBody(airplaneBody);
+
+          console.log("¡Modelo de avión y cuerpo físico cargados!");
+
+          if (gltf.animations && gltf.animations.length > 1) {
+            mixer = new THREE.AnimationMixer(airplaneModel);
+            actionRotate = mixer.clipAction(gltf.animations[0]);
+            actionRotate.loop = THREE.LoopRepeat;
+            actionRotate.clampWhenFinished = true;
+            actionRotate.enabled = true;
+
+            actionRotate.time = 2.475;
+            actionRotate.play();
+            actionRotate.paused = true;
+
+            action1 = mixer.clipAction(gltf.animations[9]);
+            action1.loop = THREE.LoopRepeat;
+            action1.enabled = true;
+            action1.play();
+          }
+        },
+        undefined,
+        (error) => {
+          console.error("Error al cargar el modelo GLTF de avión:", error);
+        }
+      );
+
+      loader.load(
+        "escena.glb",
+        (gltf) => {
+          const sceneModel = gltf.scene;
+          scene.add(sceneModel);
+
+          sceneModel.traverse((child) => {
+            if (child.isMesh && child.name.startsWith("colision")) {
+              child.geometry.computeBoundingBox();
+              const size = new THREE.Vector3();
+              child.geometry.boundingBox.getSize(size);
+
+              const obstacleShape = new CANNON.Box(
+                new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
+              );
+
+              const obstacleBody = new CANNON.Body({
+                mass: 0,
+                shape: obstacleShape,
+                material: defaultMaterial,
+                position: new CANNON.Vec3(
+                  child.getWorldPosition(new THREE.Vector3()).x,
+                  child.getWorldPosition(new THREE.Vector3()).y,
+                  child.getWorldPosition(new THREE.Vector3()).z
+                ),
+              });
+              world.addBody(obstacleBody);
+
+              console.log(`Cuerpo físico estático creado para: ${child.name}`);
+            }
+          });
+
+          console.log(
+            "Modelo de escena y cuerpos físicos estáticos de Cannon.js cargados."
+          );
+        },
+        undefined,
+        (error) => {
+          console.error("Error al cargar el modelo GLTF de escena:", error);
+        }
+      );
+
+      world.addEventListener("beginContact", (event) => {
+        const bodyA = event.bodyA;
+        const bodyB = event.bodyB;
+
+        if (
+          (bodyA === airplaneBody && bodyB.mass === 0) ||
+          (bodyB === airplaneBody && bodyA.mass === 0)
+        ) {
+          console.log("¡COLISIÓN DETECTADA POR CANNON.JS!");
+          if (!gameOver) {
+            gameOver = true;
+            const gameOverText = document.getElementById("gameOverText");
+            gameOverText.style.display = "block";
+
+            if (mixer) {
+              mixer.timeScale = 0;
+            }
+            joystickInput.strafe = 0;
+            joystickInput.forward = 0;
+            if (airplaneBody) {
+              airplaneBody.velocity.set(0, 0, 0);
+              airplaneBody.angularVelocity.set(0, 0, 0);
+            }
+          }
+        }
+      });
+
+      // --- Lógica de Control (teclado se mantiene, joystick es principal) ---
+      const keys = {};
+      window.addEventListener(
+        "keydown",
+        (e) => (keys[e.key.toLowerCase()] = true)
+      );
+      window.addEventListener(
+        "keyup",
+        (e) => (keys[e.key.toLowerCase()] = false)
+      );
+
+      let smoothedStrafe = 0;
+      const threshold = 0.5;
+
+      function updateAnimationWithJoystick(strafe, action, deltaTime) {
+        if (!action) return;
+
+        const leftTime = 1.4;
+        const rightTime = 3.65;
+
+        const turnSpeed = 3;
+        const returnSpeed = 5;
+
+        if (Math.abs(strafe) < threshold) {
+          strafe = 0;
+        }
+
+        const isReturning = Math.abs(strafe) < Math.abs(smoothedStrafe);
+        const smoothingSpeed = isReturning ? returnSpeed : turnSpeed;
+
+        smoothedStrafe +=
+          (strafe - smoothedStrafe) * deltaTime * smoothingSpeed;
+
+        const normalized = (smoothedStrafe + 1) / 2;
+        const targetTime = leftTime + normalized * (rightTime - leftTime);
+
+        if (!action.isRunning()) action.play();
+        action.paused = true;
+
+        action.time += (targetTime - action.time) * deltaTime * 5;
+        action.setEffectiveWeight(1);
+      }
+
+      // --- Animación principal ---
+      const clock = new THREE.Clock();
+      const movementSpeed = 50; // Velocidad lineal máxima
+      const rotationSpeed = 2; // Velocidad angular máxima para el giro
+
+      const fixedTimeStep = 1.0 / 60.0;
+      const maxSubSteps = 1;
+
+      // Variables temporales para evitar re-crear objetos constantemente (mejor rendimiento)
+      const tempLocalForce = new CANNON.Vec3();
+      const tempGlobalTorque = new CANNON.Vec3();
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        const deltaTime = clock.getDelta();
+
+        if (gameOver) {
+          if (mixer) {
+            mixer.update(deltaTime);
+          }
+          renderer.render(scene, camera);
+          return;
+        }
+
+        world.step(fixedTimeStep, deltaTime, maxSubSteps);
+
+        if (airplaneModel && airplaneBody) {
+          const forwardInput = -joystickInput.forward; // Adelante/Atrás (Z)
+          const strafeInput = joystickInput.strafe; // Izquierda/Derecha (X)
+
+          // --- CAMBIO CLAVE: CONTROL DEL MOVIMIENTO ---
+
+          // 1. Movimiento hacia adelante/atrás (Fuerza lineal)
+          tempLocalForce.set(0, 0, forwardInput * movementSpeed);
+          airplaneBody.applyLocalForce(tempLocalForce, CANNON.Vec3.ZERO);
+
+          // 2. Control de Guiñada (Rotación en Y)
+          // Establecer directamente la velocidad angular en el eje Y local
+          // Multiplicamos por rotationSpeed para controlar qué tan rápido gira
+          // y por el input del joystick.
+          // El angularDamping en airplaneBody ayudará a que se detenga cuando strafeInput sea 0.
+          const targetAngularVelocityY = strafeInput * rotationSpeed;
+          airplaneBody.angularVelocity.y = targetAngularVelocityY;
+
+          // 3. Estabilización lateral (opcional pero útil para "aviones")
+          // Si no hay input lateral, reduce la velocidad lateral para evitar derrapes
+          if (Math.abs(strafeInput) < 0.1) {
+              const currentVelocity = airplaneBody.velocity;
+              // Reduce la componente lateral de la velocidad en el marco local del avión
+              // Convierte la velocidad global a local, reduce X, y convierte de nuevo a global
+              const localVelocity = airplaneBody.quaternion.vmult(currentVelocity, new CANNON.Vec3());
+              localVelocity.x *= 0.9; // Reduce lateral velocity
+              airplaneBody.velocity.copy(airplaneBody.quaternion.vmult(localVelocity, new CANNON.Vec3(), true)); // true para invertir la rotación
+          }
+
+
+          // Sincronizar el modelo de Three.js con el cuerpo físico de Cannon.js
+          airplaneModel.position.copy(airplaneBody.position);
+          airplaneModel.quaternion.copy(airplaneBody.quaternion);
+
+          // --- Lógica de la cámara ---
+          const relativeCameraOffset = cameraOffset
+            .clone()
+            .applyQuaternion(airplaneModel.quaternion);
+          const targetCameraPos = airplaneModel.position
+            .clone()
+            .add(relativeCameraOffset);
+
+          camera.position.copy(targetCameraPos);
+          camera.lookAt(airplaneModel.position);
+        }
+
+        updateAnimationWithJoystick(
+          joystickInput.strafe,
+          actionRotate,
+          deltaTime
+        );
+
+        if (mixer) {
+          mixer.update(deltaTime);
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      window.onload = animate;
+
+      // --- Ajuste de ventana ---
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
+    <script src="./joystick.js"></script>
+  </body>
+</html>
