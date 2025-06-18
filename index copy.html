@@ -87,17 +87,18 @@
     import * as CANNON from "cannon-es";
 
     // --- Setup Three.js ---
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(
-      75,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      1000
-    );
-    // Puedes inicializarla aquí con una posición cercana a la esperada del avión,
-    // o dejarla en (0,0,0) y que la lógica del `if` en animate la actualice en el primer frame.
-    camera.position.set(0, 1.6, 3);
-    const cameraOffset = new THREE.Vector3(0, 2.5, 4); // Se crea una sola vez
+
+// --- Setup Three.js ---
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(
+  75,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000
+);
+// Posición de la cámara fija para depuración
+camera.position.set(1.3, 5, 10); // Más alto (Y), más atrás (Z), ajustado al X del robot
+const cameraOffset = new THREE.Vector3(0, 2.5, 4); 
 
 
 
@@ -441,38 +442,46 @@ scene.add(cameraTarget);
 
 if (airplaneModel && airplaneBody) {
   const maxRotation = 0.5;
- const strafe = joystickInput.strafe;
-const threshold = 0.3; // sensibilidad mínima
-let effectiveStrafe = 0;
+  const strafe = joystickInput.strafe;
+  const threshold = 0.3; // Sensibilidad mínima
+  let effectiveStrafe = 0;
 
-if (strafe > threshold) {
-  effectiveStrafe = 1;
-} else if (strafe < -threshold) {
-  effectiveStrafe = -1;
-} else {
-  effectiveStrafe = 0;
-}
+  if (strafe > threshold) {
+    effectiveStrafe = 1;
+  } else if (strafe < -threshold) {
+    effectiveStrafe = -1;
+  } else {
+    effectiveStrafe = 0;
+  }
 
-const maxLateralOffset = 4;
-const lateralSpeed = 3;
+  // Suavizado progresivo del strafe
+  smoothedStrafe = THREE.MathUtils.lerp(smoothedStrafe, effectiveStrafe, 0.1);
+
+
+  const lateralSpeed = 3;
+
+
+  airplaneBody.velocity.z = -5;
+
+const maxLeftOffset = 4;  // límite izquierdo (negativo)
+const maxRightOffset = 4.5; // límite derecho (positivo)
 const currentX = airplaneBody.position.x;
 
-airplaneBody.velocity.z = -5;
-
-if (effectiveStrafe < 0 && currentX > -maxLateralOffset) {
-  airplaneBody.velocity.x = -lateralSpeed;
-} else if (effectiveStrafe > 0 && currentX < maxLateralOffset) {
-  airplaneBody.velocity.x = lateralSpeed;
+if (smoothedStrafe < 0 && currentX > -maxLeftOffset) {
+  airplaneBody.velocity.x = -lateralSpeed * Math.abs(smoothedStrafe);
+} else if (smoothedStrafe > 0 && currentX < maxRightOffset) {
+  airplaneBody.velocity.x = lateralSpeed * Math.abs(smoothedStrafe);
 } else {
   airplaneBody.velocity.x = 0;
 }
+
   // Modelo animado = posición + inclinación visual
   airplaneModel.position.copy(airplaneBody.position);
   airplaneModel.quaternion.copy(airplaneBody.quaternion);
 
   // Agregamos inclinación visual (solo modelo, no afecta la cámara)
   const euler = new THREE.Euler().setFromQuaternion(airplaneModel.quaternion);
-euler.y -= maxRotation * effectiveStrafe;
+  euler.y -= maxRotation * smoothedStrafe;
   airplaneModel.quaternion.setFromEuler(euler);
 
   // Anti-gravedad para que no caiga
@@ -484,16 +493,21 @@ euler.y -= maxRotation * effectiveStrafe;
   airplaneBody.applyLocalForce(antiGravity, new CANNON.Vec3(0, 0, 0));
 
   // --- CÁMARA ---
-  cameraTarget.position.copy(airplaneBody.position);
-  cameraTarget.quaternion.copy(airplaneBody.quaternion);
 
-  const cameraOffset = new THREE.Vector3(0, 3, 8);
-  const rotatedOffset = cameraOffset.clone().applyQuaternion(cameraTarget.quaternion);
+  // const rotatedOffset = cameraOffset.clone().applyQuaternion(cameraTarget.quaternion);
+  // const desiredCameraPosition = cameraTarget.position.clone().add(rotatedOffset);
 
-  const desiredCameraPosition = cameraTarget.position.clone().add(rotatedOffset);
-  camera.position.lerp(desiredCameraPosition, 0.1);
+  // camera.position.lerp(desiredCameraPosition, 0.1);
+cameraTarget.position.copy(airplaneBody.position);
+cameraTarget.quaternion.copy(airplaneBody.quaternion);
 
-  camera.lookAt(cameraTarget.position);
+const cameraOffset = new THREE.Vector3(0, 3, 8);
+const rotatedOffset = cameraOffset.clone().applyQuaternion(cameraTarget.quaternion);
+const cameraPosition = cameraTarget.position.clone().add(rotatedOffset);
+
+camera.position.copy(cameraPosition);
+camera.lookAt(cameraTarget.position);
+
 }
 
 

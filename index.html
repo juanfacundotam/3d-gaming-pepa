@@ -1,76 +1,69 @@
 <!DOCTYPE html>
 <html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Three.js + Cannon-es con Joystick suave</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+      }
 
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Three.js + Cannon-es con Joystick suave</title>
-  <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-    }
+      canvas {
+        display: block;
+      }
 
-    canvas {
-      display: block;
-    }
+      /* Joystick styles */
+      #joystick {
+        position: absolute;
+        bottom: 35px;
+        width: 80px;
+        height: 80px;
+        background: rgba(126, 126, 126, 0.5);
+        border: #444 solid medium;
+        border-radius: 50%;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        touch-action: none;
+        user-select: none;
+      }
 
-    /* Joystick styles */
-    #joystick {
-      position: absolute;
-      bottom: 35px;
-      width: 80px;
-      height: 80px;
-      background: rgba(126, 126, 126, 0.5);
-      border: #444 solid medium;
-      border-radius: 50%;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 10;
-      touch-action: none;
-      user-select: none;
-    }
+      #thumb {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #fff;
+      }
 
-    #thumb {
-      position: absolute;
-      left: 20px;
-      top: 20px;
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background: #fff;
-    }
+      #gameOverText {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: red;
+        font-size: 5em;
+        font-family: Arial, sans-serif;
+        font-weight: bold;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+        z-index: 100;
+        pointer-events: none;
+      }
+    </style>
+  </head>
 
-    #gameOverText {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: red;
-      /* Color rojo para el texto */
-      font-size: 5em;
-      /* Tamaño grande para que sea visible */
-      font-family: Arial, sans-serif;
-      /* Fuente legible */
-      font-weight: bold;
-      /* Negrita */
-      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
-      /* Sombra para mejor visibilidad */
-      z-index: 100;
-      /* Asegura que esté por encima de todo */
-      pointer-events: none;
-      /* Permite que los clics pasen a través del texto si es necesario */
-    }
-  </style>
-</head>
+  <body>
+    <div id="joystick">
+      <div id="thumb"></div>
+    </div>
 
-<body>
-  <div id="joystick">
-    <div id="thumb"></div>
-  </div>
+    <div id="gameOverText" style="display: none">GAME OVER</div>
 
-  <div id="gameOverText" style="display: none">GAME OVER</div>
-  <script type="importmap">
+    <script type="importmap">
       {
         "imports": {
           "three": "https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.module.js",
@@ -80,458 +73,520 @@
       }
     </script>
 
-  <script type="module">
-    import * as THREE from "three";
-    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-    import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-    import * as CANNON from "cannon-es";
+    <script type="module">
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+      import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+      import * as CANNON from "cannon-es";
 
-    // --- Setup Three.js ---
+      // --- Setup Three.js ---
 
-// --- Setup Three.js ---
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
-// Posición de la cámara fija para depuración
-camera.position.set(1.3, 5, 10); // Más alto (Y), más atrás (Z), ajustado al X del robot
-const cameraOffset = new THREE.Vector3(0, 2.5, 4); 
+      // --- Setup Three.js ---
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      // Posición de la cámara fija para depuración
+      camera.position.set(1.3, 5, 10); // Más alto (Y), más atrás (Z), ajustado al X del robot
+      const cameraOffset = new THREE.Vector3(0, 2.5, 4);
 
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
 
+      // Luces
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(5, 10, 7.5);
+      scene.add(light);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
+      const ambient = new THREE.AmbientLight(0x404040);
+      scene.add(ambient);
 
-    // Luces
-    const light = new THREE.DirectionalLight(0xffffff, 1);
-    light.position.set(5, 10, 7.5);
-    scene.add(light);
+      // --- Setup Cannon-es (físicas) ---
+      const world = new CANNON.World();
+      world.gravity.set(0, -9, 0);
 
-    const ambient = new THREE.AmbientLight(0x404040);
-    scene.add(ambient);
+      const defaultMaterial = new CANNON.Material("default");
+      const airplanePhysicsMaterial = new CANNON.Material("airplaneMaterial");
+      const floorMaterial = new CANNON.Material("floorMaterial"); // Material para el suelo
 
-    // --- Setup Cannon-es (físicas) ---
-    const world = new CANNON.World();
-    world.gravity.set(0, -9, 0);
-
-    const defaultMaterial = new CANNON.Material("default");
-    const airplanePhysicsMaterial = new CANNON.Material("airplaneMaterial");
-    const floorMaterial = new CANNON.Material("floorMaterial"); // <--- Nuevo material para el suelo
-
-
-
-
-    const airplaneObstacleContactMaterial = new CANNON.ContactMaterial(
-      airplanePhysicsMaterial,
-      defaultMaterial, // Para colisiones con obstáculos generales
-      {
-        friction: 0.1,
-        restitution: 0.1,
-      }
-    );
-    world.addContactMaterial(airplaneObstacleContactMaterial);
-
-    // Nuevo ContactMaterial para la colisión entre el avión y el suelo
-    const airplaneFloorContactMaterial = new CANNON.ContactMaterial(
-      airplanePhysicsMaterial,
-      floorMaterial, // Para colisiones con el suelo
-      {
-        friction: 0, // Puedes ajustar la fricción para que el robot no patine tanto
-        restitution: 0.0, // Que no rebote en el suelo
-      }
-    );
-    world.addContactMaterial(airplaneFloorContactMaterial); // ¡No olvides añadirlo al mundo!
-    world.addContactMaterial(airplaneObstacleContactMaterial);
-
-
-    let airplaneModel;
-    let airplaneBody;
-    let mixer = null;
-    let action1, actionRotate;
-    let gameOver = false;
-const cameraTarget = new THREE.Object3D();
-scene.add(cameraTarget);
-    // Material para el avión para controlar fricción
-
-
-    // Loaders
-    const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath(
-      "https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/libs/draco/gltf/"
-    );
-    dracoLoader.setDecoderConfig({ type: "js" });
-
-    const loader = new GLTFLoader();
-    loader.setDRACOLoader(dracoLoader);
-
-
-    loader.load(
-      "robot.glb",
-      (gltf) => {
-        airplaneModel = gltf.scene;
-        airplaneModel.position.set(1.3, 2.24, 0);
-        airplaneModel.scale.set(0.3, 0.3, 0.3); // explícito y claro
-        // deberías ver valores ≠ 0
-
-        scene.add(airplaneModel);
-
-        const boxShape = new CANNON.Box(new CANNON.Vec3(0.5, 0, 1));
-        airplaneBody = new CANNON.Body({
-          mass: 1,
-          shape: boxShape,
-          material: airplanePhysicsMaterial,
-          position: new CANNON.Vec3(
-            airplaneModel.position.x,
-            airplaneModel.position.y,
-            airplaneModel.position.z
-          ),
-          linearDamping: 0.95, // Se mantiene el damping lineal
-          angularDamping: 0.95, // <--- Este damping es crucial para que el giro se detenga
-        });
-        world.addBody(airplaneBody);
-
-        console.log("¡Modelo de avión y cuerpo físico cargados!");
-
-        if (gltf.animations && gltf.animations.length > 1) {
-          mixer = new THREE.AnimationMixer(airplaneModel);
-          actionRotate = mixer.clipAction(gltf.animations[0]);
-          actionRotate.loop = THREE.LoopRepeat;
-          actionRotate.clampWhenFinished = true;
-          actionRotate.enabled = true;
-
-          actionRotate.time = 2.475;
-          actionRotate.play();
-          actionRotate.paused = true;
-
-          action1 = mixer.clipAction(gltf.animations[6]);
-          action1.loop = THREE.LoopRepeat;
-          action1.enabled = true;
-          action1.play();
+      const airplaneObstacleContactMaterial = new CANNON.ContactMaterial(
+        airplanePhysicsMaterial,
+        defaultMaterial, // Para colisiones con obstáculos generales
+        {
+          friction: 0.1,
+          restitution: 0.1,
         }
-      },
-      undefined,
-      (error) => {
-        console.error("Error al cargar el modelo GLTF de avión:", error);
-      }
-    );
+      );
+      world.addContactMaterial(airplaneObstacleContactMaterial);
 
-    loader.load(
-      "escena.glb",
-      (gltf) => {
-        const sceneModel = gltf.scene;
-        console.log(sceneModel);
-        scene.add(sceneModel);
+      // ContactMaterial para la colisión entre el avión y el suelo
+      const airplaneFloorContactMaterial = new CANNON.ContactMaterial(
+        airplanePhysicsMaterial,
+        floorMaterial,
+        {
+          friction: 0, // Ajusta según necesidad para que no patine
+          restitution: 0.0,
+        }
+      );
+      world.addContactMaterial(airplaneFloorContactMaterial);
 
-        sceneModel.traverse((child) => {
-          // Modifica esta parte
-          if (child.isMesh && (child.name.startsWith("colision") || child.name === "calle")) {
-            child.geometry.computeBoundingBox();
-            const size = new THREE.Vector3();
-            child.geometry.boundingBox.getSize(size);
+      let airplaneModel;
+      let airplaneBody;
+      let mixer = null;
+      let action1, actionRotate;
+      let gameOver = false;
 
-            const obstacleShape = new CANNON.Box(
-              new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
-            );
+      const cameraTarget = new THREE.Object3D();
+      scene.add(cameraTarget);
 
-            let bodyMaterial;
-            if (child.name === "calle") {
-              bodyMaterial = floorMaterial; // Asigna el material del suelo
-            } else {
-              bodyMaterial = defaultMaterial; // Los demás obstáculos usan el material por defecto
+      // Loaders
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath(
+        "https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/libs/draco/gltf/"
+      );
+      dracoLoader.setDecoderConfig({ type: "js" });
+
+      const loader = new GLTFLoader();
+      loader.setDRACOLoader(dracoLoader);
+
+      loader.load(
+        "robot.glb",
+        (gltf) => {
+          airplaneModel = gltf.scene;
+          // airplaneModel.position.set(1.3, 2.24, 0);
+          airplaneModel.position.set(1.3, 1.2, 0);
+          airplaneModel.scale.set(0.3, 0.3, 0.3);
+
+          scene.add(airplaneModel);
+
+          const boxShape = new CANNON.Box(new CANNON.Vec3(0.5, 0.01, 0.5));
+          const offsetY = 0;
+          airplaneBody = new CANNON.Body({
+            mass: 1,
+            shape: boxShape,
+            material: airplanePhysicsMaterial,
+  position: new CANNON.Vec3(
+    airplaneModel.position.x,
+    airplaneModel.position.y - offsetY, // lo bajo 0.2 unidades
+    airplaneModel.position.z
+  ),
+            linearDamping: 0.95,
+            angularDamping: 0.95,
+          });
+          world.addBody(airplaneBody);
+
+          console.log("¡Modelo de avión y cuerpo físico cargados!");
+
+          if (gltf.animations && gltf.animations.length > 1) {
+            mixer = new THREE.AnimationMixer(airplaneModel);
+            actionRotate = mixer.clipAction(gltf.animations[0]);
+            actionRotate.loop = THREE.LoopRepeat;
+            actionRotate.clampWhenFinished = true;
+            actionRotate.enabled = true;
+
+            actionRotate.time = 2.475;
+            actionRotate.play();
+            actionRotate.paused = true;
+
+            action1 = mixer.clipAction(gltf.animations[6]);
+            action1.loop = THREE.LoopRepeat;
+            action1.enabled = true;
+            action1.play();
+          }
+        },
+        undefined,
+        (error) => {
+          console.error("Error al cargar el modelo GLTF de avión:", error);
+        }
+      );
+      const dynamicObjects = [];
+      let model;
+     loader.load(
+  "escena.glb",
+  (gltf) => {
+    model = gltf.scene;
+    scene.add(model);
+    console.log(model);
+
+    // Buscar mesh o grupo con geometría para el piso
+    const pisoMesh = getMeshByName(model, "piso");
+
+    if (pisoMesh) {
+      const pisoShape = new CANNON.Plane();
+      const pisoPos = pisoMesh.getWorldPosition(new THREE.Vector3());
+      const offsetY = 16.3; // ajusta este valor a tu gusto
+
+      const pisoBody = new CANNON.Body({
+        mass: 0, // Objeto estático
+        shape: pisoShape,
+        material: floorMaterial,
+        position: new CANNON.Vec3(
+          pisoPos.x,
+          pisoPos.y + offsetY,
+          pisoPos.z
+        ),
+      });
+
+      pisoBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+      world.addBody(pisoBody);
+
+      console.log("Cuerpo físico creado para el piso usando CANNON.Plane");
+    } else {
+      console.warn("No se encontró mesh o grupo con nombre 'piso'");
+    }
+
+    // Buscar colisiones: mesh o grupo que empiece con "colision"
+    model.traverse((child) => {
+      if (child.name.startsWith("colision")) {
+        if (child.isMesh) {
+          agregarCuerpo(child);
+        } else if (child.isObject3D) {
+          child.traverse((nested) => {
+            if (nested.isMesh) {
+              agregarCuerpo(nested);
             }
-
-            const obstacleBody = new CANNON.Body({
-              mass: 0,
-              shape: obstacleShape,
-              material: bodyMaterial, // <--- Usa el material determinado
-              position: new CANNON.Vec3(
-                child.getWorldPosition(new THREE.Vector3()).x,
-                child.getWorldPosition(new THREE.Vector3()).y,
-                child.getWorldPosition(new THREE.Vector3()).z
-              ),
-            });
-            world.addBody(obstacleBody);
-
-            console.log(`Cuerpo físico estático creado para: ${child.name}`);
-          }
-        });
-
-        console.log(
-          "Modelo de escena y cuerpos físicos estáticos de Cannon.js cargados."
-        );
-      },
-      undefined,
-      (error) => {
-        console.error("Error al cargar el modelo GLTF de escena:", error);
-      }
-    );
-
-    // world.addEventListener("beginContact", (event) => {
-    //   const bodyA = event.bodyA;
-    //   const bodyB = event.bodyB;
-
-    //   if (
-    //     (bodyA === airplaneBody && bodyB.mass === 0) ||
-    //     (bodyB === airplaneBody && bodyA.mass === 0)
-    //   ) {
-    //     console.log("¡COLISIÓN DETECTADA POR CANNON.JS!");
-    //     if (!gameOver) {
-    //       gameOver = true;
-    //       const gameOverText = document.getElementById("gameOverText");
-    //       gameOverText.style.display = "block";
-
-    //       if (mixer) {
-    //         mixer.timeScale = 0;
-    //       }
-    //       joystickInput.strafe = 0;
-    //       joystickInput.forward = 0;
-    //       if (airplaneBody) {
-    //         airplaneBody.velocity.set(0, 0, 0);
-    //         airplaneBody.angularVelocity.set(0, 0, 0);
-    //       }
-    //     }
-    //   }
-    // });
-    world.addEventListener("beginContact", (event) => {
-      const bodyA = event.bodyA;
-      const bodyB = event.bodyB;
-
-      // Accede a los materiales de los cuerpos directamente del evento de contacto
-      const materialA = bodyA.material;
-      const materialB = bodyB.material;
-
-      // Identifica si uno de los cuerpos es el avión y el otro es un cuerpo estático
-      const isAirplaneA = bodyA === airplaneBody;
-      const isAirplaneB = bodyB === airplaneBody;
-
-      // Verifica si el avión colisionó con un obstáculo (usando defaultMaterial)
-      const collidedWithObstacle =
-        (isAirplaneA && materialB === defaultMaterial) ||
-        (isAirplaneB && materialA === defaultMaterial);
-
-      // Verifica si el avión colisionó con el suelo (usando floorMaterial)
-      const collidedWithFloor =
-        (isAirplaneA && materialB === floorMaterial) ||
-        (isAirplaneB && materialA === floorMaterial);
-
-      if (collidedWithObstacle) {
-        console.log("¡COLISIÓN CON OBSTÁCULO DETECTADA! GAME OVER.");
-        if (!gameOver) {
-          gameOver = true;
-          const gameOverText = document.getElementById("gameOverText");
-          gameOverText.style.display = "block";
-
-          if (mixer) {
-            mixer.timeScale = 0; // Detiene las animaciones del robot
-          }
-          joystickInput.strafe = 0;
-          joystickInput.forward = 0;
-          if (airplaneBody) {
-            airplaneBody.velocity.set(0, 0, 0); // Detiene el movimiento del robot
-            airplaneBody.angularVelocity.set(0, 0, 0);
-          }
+          });
         }
-      } else if (collidedWithFloor) {
-        console.log("Colisión con el suelo (calle)");
-        // Aquí puedes añadir lógica si quieres que pase algo al tocar el suelo
-        // por ejemplo, reducir un poco la velocidad si está en el aire y aterriza, etc.
       }
     });
 
-    // --- Control teclado ---
-    const keys = {};
-    window.addEventListener(
-      "keydown",
-      (e) => (keys[e.key.toLowerCase()] = true)
-    );
-    window.addEventListener(
-      "keyup",
-      (e) => (keys[e.key.toLowerCase()] = false)
-    );
+    console.log("Modelo y cuerpos físicos del piso y obstáculos cargados correctamente.");
+  },
+  undefined,
+  (error) => {
+    console.error("Error al cargar el modelo GLTF:", error);
+  }
+);
+
+// Función para obtener un mesh por nombre, buscando también dentro de grupos
+function getMeshByName(model, name) {
+  let foundMesh = null;
+
+  model.traverse((child) => {
+    if (child.name === name) {
+      if (child.isMesh) {
+        foundMesh = child;
+        child.position.y = -5;
+      } else if (child.isObject3D) {
+        child.traverse((nested) => {
+          if (nested.isMesh && !foundMesh) {
+            foundMesh = nested;
+            nested.position.y = -5;
+          }
+        });
+      }
+    }
+  });
+
+  return foundMesh;
+}
+
+// Función auxiliar para agregar cuerpo físico a un mesh
+function agregarCuerpo(mesh) {
+  mesh.geometry.computeBoundingBox();
+  const size = new THREE.Vector3();
+  mesh.geometry.boundingBox.getSize(size);
+
+  const shape = new CANNON.Box(
+    new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
+  );
+
+  const pos = mesh.getWorldPosition(new THREE.Vector3());
+
+  const body = new CANNON.Body({
+    mass: 10, // Si querés que sea estático, usá 0
+    shape,
+    material: defaultMaterial,
+    position: new CANNON.Vec3(pos.x, pos.y, pos.z),
+  });
+
+  world.addBody(body);
+  dynamicObjects.push({ mesh, body });
+
+  console.log(`Cuerpo físico creado para: ${mesh.name}`);
+}
+
+      world.addEventListener("beginContact", (event) => {
+        const bodyA = event.bodyA;
+        const bodyB = event.bodyB;
+
+        const materialA = bodyA.material;
+        const materialB = bodyB.material;
+
+        const isAirplaneA = bodyA === airplaneBody;
+        const isAirplaneB = bodyB === airplaneBody;
+
+        const collidedWithObstacle =
+          (isAirplaneA && materialB === defaultMaterial) ||
+          (isAirplaneB && materialA === defaultMaterial);
+
+        const collidedWithFloor =
+          (isAirplaneA && materialB === floorMaterial) ||
+          (isAirplaneB && materialA === floorMaterial);
+
+        if (collidedWithObstacle) {
+          console.log("¡COLISIÓN CON OBSTÁCULO DETECTADA! GAME OVER.");
+          if (!gameOver) {
+            gameOver = true;
+            const gameOverText = document.getElementById("gameOverText");
+            gameOverText.style.display = "block";
+
+            if (mixer) {
+              mixer.timeScale = 0;
+            }
+            joystickInput.strafe = 0;
+            joystickInput.forward = 0;
+            if (airplaneBody) {
+              airplaneBody.velocity.set(0, 0, 0);
+              airplaneBody.angularVelocity.set(0, 0, 0);
+            }
+          }
+        } else if (collidedWithFloor) {
+          console.log("Colisión con el suelo (piso)");
+        }
+      });
+
+      // --- Función para reiniciar el juego ---
 
 
 
-    // Variable global o en ámbito donde se mantenga entre frames
-    let smoothedStrafe = 0;
-    const threshold = 0.5; // Ajustá a lo que te guste
 
-    function updateAnimationWithJoystick(strafe, action, deltaTime) {
-      if (!action) return;
 
-      const leftTime = 1.4;
-      const rightTime = 3.65;
-      // const centerTime = 2.475;
 
-      const turnSpeed = 3;
-      const returnSpeed = 5;
 
-      // Si el strafe está dentro del umbral, tratarlo como 0
 
-      if (Math.abs(strafe) < threshold) {
-        strafe = 0;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      
+      // Variable global o en ámbito donde se mantenga entre frames
+      let smoothedStrafe = 0;
+      const threshold = 0.5; // Ajustá a lo que te guste
+
+      function updateAnimationWithJoystick(strafe, action, deltaTime) {
+        if (!action) return;
+
+        const leftTime = 1.4;
+        const rightTime = 3.65;
+        // const centerTime = 2.475;
+
+        const turnSpeed = 3;
+        const returnSpeed = 5;
+
+        // Si el strafe está dentro del umbral, tratarlo como 0
+
+        if (Math.abs(strafe) < threshold) {
+          strafe = 0;
+        }
+
+        const isReturning = Math.abs(strafe) < Math.abs(smoothedStrafe);
+        const smoothingSpeed = isReturning ? returnSpeed : turnSpeed;
+
+        smoothedStrafe +=
+          (strafe - smoothedStrafe) * deltaTime * smoothingSpeed;
+
+        // Normalización lineal (de -1 a 1) a tiempos
+        const normalized = (smoothedStrafe + 1) / 2; // -1 → 0, 1 → 1
+        const targetTime = leftTime + normalized * (rightTime - leftTime);
+
+        if (!action.isRunning()) action.play();
+        action.paused = true;
+
+        action.time += (targetTime - action.time) * deltaTime * 5;
+        action.setEffectiveWeight(1);
       }
 
-      const isReturning = Math.abs(strafe) < Math.abs(smoothedStrafe);
-      const smoothingSpeed = isReturning ? returnSpeed : turnSpeed;
+      // --- Animación y física ---
+      const clock = new THREE.Clock();
 
-      smoothedStrafe +=
-        (strafe - smoothedStrafe) * deltaTime * smoothingSpeed;
+      const movementSpeed = 50; // Velocidad lineal máxima
+      const rotationSpeed = 2; // Velocidad angular máxima para el giro
 
-      // Normalización lineal (de -1 a 1) a tiempos
-      const normalized = (smoothedStrafe + 1) / 2; // -1 → 0, 1 → 1
-      const targetTime = leftTime + normalized * (rightTime - leftTime);
+      let strafeValue = 0;
+      const fixedTimeStep = 1.0 / 60.0;
+      const maxSubSteps = 3;
 
-      if (!action.isRunning()) action.play();
-      action.paused = true;
+      const tempLocalForce = new CANNON.Vec3();
+      const tempGlobalTorque = new CANNON.Vec3();
+      const smoothedCameraPosition = new THREE.Vector3();
 
-      action.time += (targetTime - action.time) * deltaTime * 5;
-      action.setEffectiveWeight(1);
-    }
+      function animate() {
+        requestAnimationFrame(animate);
+        dynamicObjects.forEach((obj) => {
+          obj.mesh.position.copy(obj.body.position);
+          obj.mesh.quaternion.copy(obj.body.quaternion);
+        });
+        const deltaTime = clock.getDelta();
 
-    // --- Animación y física ---
-    const clock = new THREE.Clock();
+        if (gameOver) {
+          if (mixer) {
+            mixer.update(deltaTime);
+          }
+          renderer.render(scene, camera);
+          return;
+        }
+
+        // Actualizar físicas
+        world.step(fixedTimeStep, deltaTime, maxSubSteps);
 
 
-    const movementSpeed = 50; // Velocidad lineal máxima
-    const rotationSpeed = 2; // Velocidad angular máxima para el giro
+        const maxLeftOffset = 4; // límite izquierdo (negativo)
+        const maxRightOffset = 4.5; // límite derecho (positivo)
 
-    //   const animStart = 1; // segundo inicio animación
-    //   const animEnd = 5; // segundo fin animación
-    //   let joystickActive = false;
-    let strafeValue = 0;
-    const fixedTimeStep = 1.0 / 60.0;
-    const maxSubSteps = 3;
+        if (airplaneModel && airplaneBody) {
+          const maxRotation = 0.5;
+          const strafe = joystickInput.strafe;
+          const threshold = 0.3; // Sensibilidad mínima
+          let effectiveStrafe = 0;
 
-    const tempLocalForce = new CANNON.Vec3();
-    const tempGlobalTorque = new CANNON.Vec3();
-    const smoothedCameraPosition = new THREE.Vector3();
-    function animate() {
-      requestAnimationFrame(animate);
+          if (strafe > threshold) {
+            effectiveStrafe = 1;
+          } else if (strafe < -threshold) {
+            effectiveStrafe = -1;
+          } else {
+            effectiveStrafe = 0;
+          }
 
-      const deltaTime = clock.getDelta();
+          // Suavizado progresivo del strafe
+          smoothedStrafe = THREE.MathUtils.lerp(
+            smoothedStrafe,
+            effectiveStrafe,
+            0.1
+          );
 
-      if (gameOver) {
+          const lateralSpeed = 4;
+
+          airplaneBody.velocity.z = -6;
+
+          const maxLeftOffset = 4; // límite izquierdo (positivo para cálculo, negativo en posición)
+          const maxRightOffset = 4.5; // límite derecho (positivo)
+          const currentX = airplaneBody.position.x;
+
+          // Movimiento lateral con límites
+          if (smoothedStrafe < 0 && currentX > -maxLeftOffset) {
+            airplaneBody.velocity.x = -lateralSpeed * Math.abs(smoothedStrafe);
+          } else if (smoothedStrafe > 0 && currentX < maxRightOffset) {
+            airplaneBody.velocity.x = lateralSpeed * Math.abs(smoothedStrafe);
+          } else {
+            airplaneBody.velocity.x = 0;
+          }
+
+          // --- Suavizado rotación cerca de límites ---
+          const smoothingRange = 0.5; // Distancia para comenzar a suavizar rotación
+
+          const distanceToLeftLimit = currentX + maxLeftOffset + 0.2; // >=0 cuando está dentro de la zona de suavizado
+          const distanceToRightLimit = maxRightOffset - currentX + 0.2; // >=0 cuando está dentro de la zona de suavizado
+
+          let leftFactor = 1;
+          let rightFactor = 1;
+
+          if (
+            distanceToLeftLimit >= 0 &&
+            distanceToLeftLimit < smoothingRange
+          ) {
+            leftFactor = distanceToLeftLimit / smoothingRange; // 0 a 1
+          }
+
+          if (
+            distanceToRightLimit >= 0 &&
+            distanceToRightLimit < smoothingRange
+          ) {
+            rightFactor = distanceToRightLimit / smoothingRange; // 0 a 1
+          }
+
+          let rotationInput = smoothedStrafe;
+
+          if (smoothedStrafe < 0) {
+            rotationInput *= leftFactor;
+          } else if (smoothedStrafe > 0) {
+            rotationInput *= rightFactor;
+          }
+
+          // Modelo animado = posición + inclinación visual suavizada
+          airplaneModel.position.copy(airplaneBody.position);
+          airplaneModel.quaternion.copy(airplaneBody.quaternion);
+
+          const euler = new THREE.Euler().setFromQuaternion(
+            airplaneModel.quaternion
+          );
+          euler.y -= maxRotation * rotationInput;
+          airplaneModel.quaternion.setFromEuler(euler);
+
+
+          // const antiGravity = new CANNON.Vec3(
+          //   0,
+          //   -world.gravity.y * airplaneBody.mass,
+          //   0
+          // );
+          // airplaneBody.applyLocalForce(antiGravity, new CANNON.Vec3(0, 0, 0));
+
+          // --- CÁMARA ---
+          cameraTarget.position.copy(airplaneBody.position);
+          cameraTarget.quaternion.copy(airplaneBody.quaternion);
+
+          const cameraOffset = new THREE.Vector3(0, 3, 8);
+          const rotatedOffset = cameraOffset
+            .clone()
+            .applyQuaternion(cameraTarget.quaternion);
+          const cameraPosition = cameraTarget.position
+            .clone()
+            .add(rotatedOffset);
+
+          camera.position.copy(cameraPosition);
+          camera.lookAt(cameraTarget.position);
+        }
+
+        // updateAnimationWithJoystick(
+        //   joystickInput.strafe,
+        //   actionRotate,
+        //   deltaTime
+        // );
+
         if (mixer) {
           mixer.update(deltaTime);
         }
+
         renderer.render(scene, camera);
-        return;
       }
 
-      if (airplaneBody) {
-        // Coeficiente de resistencia aerodinámica (ajusta este valor)
-        const arrastreCoefficient = 0.1;
+      window.onload = animate;
 
-        // Velocidad actual
-        const velocity = airplaneBody.velocity;
-
-        // Fuerza de arrastre = -velocidad * coeficiente
-        const dragForce = velocity.scale(-arrastreCoefficient);
-
-        // Aplica la fuerza de arrastre en el centro de masa
-        airplaneBody.applyForce(dragForce, new CANNON.Vec3(0, 0, 0));
-      }
-
-
-      // Actualizar físicas
-      world.step(fixedTimeStep, deltaTime, maxSubSteps);
-
-if (airplaneModel && airplaneBody) {
-  const maxRotation = 0.5;
-  const strafe = joystickInput.strafe;
-  const threshold = 0.3; // Sensibilidad mínima
-  let effectiveStrafe = 0;
-
-  if (strafe > threshold) {
-    effectiveStrafe = 1;
-  } else if (strafe < -threshold) {
-    effectiveStrafe = -1;
-  } else {
-    effectiveStrafe = 0;
-  }
-
-  // Suavizado progresivo del strafe
-  smoothedStrafe = THREE.MathUtils.lerp(smoothedStrafe, effectiveStrafe, 0.1);
-
-  const maxLateralOffset = 4;
-  const lateralSpeed = 3;
-  const currentX = airplaneBody.position.x;
-
-  airplaneBody.velocity.z = -5;
-
-  if (smoothedStrafe < 0 && currentX > -maxLateralOffset) {
-    airplaneBody.velocity.x = -lateralSpeed * Math.abs(smoothedStrafe);
-  } else if (smoothedStrafe > 0 && currentX < maxLateralOffset) {
-    airplaneBody.velocity.x = lateralSpeed * Math.abs(smoothedStrafe);
-  } else {
-    airplaneBody.velocity.x = 0;
-  }
-
-  // Modelo animado = posición + inclinación visual
-  airplaneModel.position.copy(airplaneBody.position);
-  airplaneModel.quaternion.copy(airplaneBody.quaternion);
-
-  // Agregamos inclinación visual (solo modelo, no afecta la cámara)
-  const euler = new THREE.Euler().setFromQuaternion(airplaneModel.quaternion);
-  euler.y -= maxRotation * smoothedStrafe;
-  airplaneModel.quaternion.setFromEuler(euler);
-
-  // Anti-gravedad para que no caiga
-  const antiGravity = new CANNON.Vec3(
-    0,
-    -world.gravity.y * airplaneBody.mass,
-    0
-  );
-  airplaneBody.applyLocalForce(antiGravity, new CANNON.Vec3(0, 0, 0));
-
-  // --- CÁMARA ---
-
-  // const rotatedOffset = cameraOffset.clone().applyQuaternion(cameraTarget.quaternion);
-  // const desiredCameraPosition = cameraTarget.position.clone().add(rotatedOffset);
-
-  // camera.position.lerp(desiredCameraPosition, 0.1);
-cameraTarget.position.copy(airplaneBody.position);
-cameraTarget.quaternion.copy(airplaneBody.quaternion);
-
-const cameraOffset = new THREE.Vector3(0, 3, 8);
-const rotatedOffset = cameraOffset.clone().applyQuaternion(cameraTarget.quaternion);
-const cameraPosition = cameraTarget.position.clone().add(rotatedOffset);
-
-camera.position.copy(cameraPosition);
-camera.lookAt(cameraTarget.position);
-
-}
-
-
-
-      // updateAnimationWithJoystick(
-      //   joystickInput.strafe,
-      //   actionRotate,
-      //   deltaTime
-      // );
-
-      if (mixer) {
-        mixer.update(deltaTime);
-      }
-
-      // controls.update();
-      renderer.render(scene, camera);
-    }
-
-    window.onload = animate;
-
-    // --- Ajuste de ventana ---
-    window.addEventListener("resize", () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-  </script>
-  <script src="./joystick.js"></script>
-</body>
-
+      // --- Ajuste de ventana ---
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
+    <script src="./joystick.js"></script>
+  </body>
 </html>
