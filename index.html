@@ -301,7 +301,7 @@
               material: floorMaterial,
               position: new CANNON.Vec3(
                 pisoPos.x,
-                pisoPos.y, // Usa la posición Y real del pisoMesh para la colisión
+                pisoPos.y + 0.7, // Usa la posición Y real del pisoMesh para la colisión
                 pisoPos.z
               ),
             });
@@ -401,61 +401,91 @@
       // Función auxiliar para agregar cuerpo físico a un mesh
      // Función auxiliar para agregar cuerpo físico a un mesh
 // Función auxiliar para agregar cuerpo físico a un mesh
+// Función auxiliar para agregar cuerpo físico a un mesh
+// Función auxiliar para agregar cuerpo físico a un mesh
 function agregarCuerpo(mesh, tipo) {
-  // Asegúrate de que el mesh está en la escena y tiene sus transformaciones aplicadas.
-  // Obtener el bounding box del mesh CON SUS TRANSFORMACIONES APLICADAS (posición, rotación, escala)
   const bbox = new THREE.Box3().setFromObject(mesh);
   const size = new THREE.Vector3();
   bbox.getSize(size);
 
-  // La caja de Cannon debe ser la mitad del tamaño de Three.js (semidimensiones)
-  // El método setFromObject ya te da las dimensiones correctas después de escalar.
-  const shape = new CANNON.Box(
-    new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
-  );
+  // Define las dimensiones iniciales de la caja de colisión (semidimensiones)
+  let boxSizeX = size.x / 2;
+  let boxSizeY = size.y / 2; // <-- Esta es la dimensión Y que queremos ajustar
+  let boxSizeZ = size.z / 2;
 
-  // Obtener la posición mundial del mesh para el cuerpo físico
   const pos = mesh.getWorldPosition(new THREE.Vector3());
   const quat = mesh.getWorldQuaternion(new THREE.Quaternion());
 
   let mass;
   let material;
+  let adjustedPosY = pos.y; // Variable para la posición Y ajustada del cuerpo físico
 
   switch (tipo) {
     case "colision":
-      mass = 0.000001; // Obstáculos fijos, mass = 0
+      mass = 0.000001; // Obstáculos fijos (casi inmóviles)
       material = defaultMaterial;
+
+      // *** AJUSTE DE DIMENSIÓN Y ALTURA PARA OBJETOS "colision" ***
+
+      // Opción 1: Reducir la altura de la caja de colisión a la mitad
+      boxSizeZ = 1; // Esto hace la caja de colisión en Y la mitad de alta
+      boxSizeX = 1; // Esto hace la caja de colisión en Y la mitad de alta
+      boxSizeY = 1; // Esto hace la caja de colisión en Y la mitad de alta
+
+      // Luego, ajusta la posición Y del cuerpo físico.
+      // Si el modelo visible se "hunde" la mitad, su base visual está en pos.y.
+      // Si ahora la caja es más pequeña, para que su base siga en pos.y,
+      // su centro debe estar en pos.y + la nueva mitad de la altura.
+      adjustedPosY = pos.y + boxSizeY; // pos.y (base visual) + nueva mitad de altura de la caja
+
+      // Puedes sumar un offset adicional si el modelo 3D tiene el origen diferente
+      // adjustedPosY = pos.y + boxSizeY + 0.1; // Ejemplo: sube la caja un poco más
+
       break;
     case "enemigo":
-      mass = 0.000001; // Masa para enemigos
+      mass = 0.000001;
       material = enemyMaterial;
+      boxSizeY = 1.8; 
+      // No se ajustan dimensiones ni posición Y aquí.
+      adjustedPosY = pos.y; // El centro del cuerpo físico será el centro del mesh visible
       break;
     case "aliado":
-      mass = 0.000001; // Masa para aliados (pueden ser ligeros)
+      mass = 0.000001;
       material = allyMaterial;
+           boxSizeY = 1.8; 
+      // No se ajustan dimensiones ni posición Y aquí.
+      adjustedPosY = pos.y;
       break;
     case "item":
-      mass = 0.000001; // Masa para ítems (casi sin masa, para que no interfieran mucho)
+      mass = 0.000001;
       material = itemMaterial;
+           boxSizeY = 1.8; 
+      // No se ajustan dimensiones ni posición Y aquí.
+      adjustedPosY = pos.y;
       break;
     default:
-      mass = 0; // Por defecto para objetos estáticos
+      mass = 0;
       material = defaultMaterial;
+      // No se ajustan dimensiones ni posición Y aquí.
+      adjustedPosY = pos.y;
       break;
   }
 
+  // Crea la forma de la caja con las dimensiones ajustadas
+  const shape = new CANNON.Box(
+    new CANNON.Vec3(boxSizeX, boxSizeY, boxSizeZ)
+  );
+
   const body = new CANNON.Body({
     mass: mass,
-    shape: shape,
+    shape: shape, // <-- La forma con la dimensión Y modificada
     material: material,
-    position: new CANNON.Vec3(pos.x, pos.y, pos.z),
-    linearDamping: mass > 0 ? 0.9 : 0, // Damping solo para cuerpos con masa
-    angularDamping: mass > 0 ? 0.9 : 0, // Damping solo para cuerpos con masa
+    position: new CANNON.Vec3(pos.x, adjustedPosY, pos.z), // <-- Posición Y ajustada
+    linearDamping: mass > 0 ? 0.9 : 0,
+    angularDamping: mass > 0 ? 0.9 : 0,
   });
 
-  // Asegúrate de que la orientación inicial del cuerpo físico coincida con la del mesh
   body.quaternion.copy(quat);
-
   world.addBody(body);
   dynamicObjects.push({ mesh, body, tipo });
   console.log(`Cuerpo físico de tipo '${tipo}' creado para: ${mesh.name}`);
@@ -621,7 +651,7 @@ function agregarCuerpo(mesh, tipo) {
 
           const lateralSpeed = 4;
 
-          airplaneBody.velocity.z = -6; // Movimiento constante hacia adelante/atrás
+          airplaneBody.velocity.z = -8; // Movimiento constante hacia adelante/atrás
 
           const maxLeftOffset = 4; // límite izquierdo (positivo para cálculo, negativo en posición)
           const maxRightOffset = 4.5; // límite derecho (positivo)
