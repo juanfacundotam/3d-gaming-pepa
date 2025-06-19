@@ -80,8 +80,6 @@
       import * as CANNON from "cannon-es";
 
       // --- Setup Three.js ---
-
-      // --- Setup Three.js ---
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(
         75,
@@ -90,7 +88,7 @@
         1000
       );
       // Posición de la cámara fija para depuración
-      camera.position.set(1.3, 5, 10); // Más alto (Y), más atrás (Z), ajustado al X del robot
+      camera.position.set(1.3, 5, 10);
       const cameraOffset = new THREE.Vector3(0, 2.5, 4);
 
       const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -107,7 +105,7 @@
 
       // --- Setup Cannon-es (físicas) ---
       const world = new CANNON.World();
-      world.gravity.set(0, -9, 0);
+      world.gravity.set(0, -9.82, 0); // Gravedad estándar (ajustable)
 
       const defaultMaterial = new CANNON.Material("default");
       const airplanePhysicsMaterial = new CANNON.Material("airplaneMaterial");
@@ -157,23 +155,34 @@
         "robot.glb",
         (gltf) => {
           airplaneModel = gltf.scene;
-          // airplaneModel.position.set(1.3, 2.24, 0);
           airplaneModel.position.set(1.3, 1.2, 0);
-          airplaneModel.scale.set(0.3, 0.3, 0.3);
+          airplaneModel.scale.set(0.3, 0.3, 0.3); // Asegúrate de que esta escala sea consistente con el tamaño de tu caja de colisión
 
           scene.add(airplaneModel);
 
-          const boxShape = new CANNON.Box(new CANNON.Vec3(0.5, 0.01, 0.5));
-          const offsetY = 0;
+          // Ajusta el tamaño de la caja de colisión para que coincida con el modelo escalado
+          // Puedes obtener el bounding box del modelo una vez cargado y escalado
+          const bbox = new THREE.Box3().setFromObject(airplaneModel);
+          const size = new THREE.Vector3();
+          bbox.getSize(size);
+          // Dividir por 2 porque CANNON.Box toma las "semidimensiones"
+          const boxShape = new CANNON.Box(
+            new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
+          );
+
+          // La posición inicial del cuerpo físico debe coincidir con la posición del modelo visual
+          // Considera que el punto de pivote del modelo GLTF puede no estar en su centro geométrico.
+          // Si el modelo visual está 'dentro' del piso, ajusta la Y.
+          // Aquí uso la posición del modelo visual como base.
           airplaneBody = new CANNON.Body({
-            mass: 1,
+            mass: 100,
             shape: boxShape,
             material: airplanePhysicsMaterial,
-  position: new CANNON.Vec3(
-    airplaneModel.position.x,
-    airplaneModel.position.y - offsetY, // lo bajo 0.2 unidades
-    airplaneModel.position.z
-  ),
+            position: new CANNON.Vec3(
+              airplaneModel.position.x,
+              airplaneModel.position.y + size.y / 2, // Ajustar la Y para que la base del cuerpo esté en la posición deseada
+              airplaneModel.position.z
+            ),
             linearDamping: 0.95,
             angularDamping: 0.95,
           });
@@ -203,191 +212,301 @@
           console.error("Error al cargar el modelo GLTF de avión:", error);
         }
       );
-      const dynamicObjects = [];
+
+      // Definir nuevos materiales para las categorías
+      const enemyMaterial = new CANNON.Material("enemyMaterial");
+      const allyMaterial = new CANNON.Material("allyMaterial");
+      const itemMaterial = new CANNON.Material("itemMaterial");
+
+      // Configurar materiales de contacto
+      // Puedes ajustar estos valores según el comportamiento que desees para las interacciones
+      const enemyContactMaterial = new CANNON.ContactMaterial(
+        airplanePhysicsMaterial, // La colisión es entre el avión y el enemigo
+        enemyMaterial,
+        {
+          friction: 0.5,
+          restitution: 0.1,
+        }
+      );
+      world.addContactMaterial(enemyContactMaterial);
+
+      const allyContactMaterial = new CANNON.ContactMaterial(
+        airplanePhysicsMaterial, // La colisión es entre el avión y el aliado
+        allyMaterial,
+        {
+          friction: 0.3,
+          restitution: 0.5,
+        }
+      );
+      world.addContactMaterial(allyContactMaterial);
+
+      const itemContactMaterial = new CANNON.ContactMaterial(
+        airplanePhysicsMaterial, // La colisión es entre el avión y el ítem
+        itemMaterial,
+        {
+          friction: 0.8,
+          restitution: 0.7,
+        }
+      );
+      world.addContactMaterial(itemContactMaterial);
+
+      let dynamicObjects = []; // Asegúrate de que esta variable esté correctamente inicializada
       let model;
-     loader.load(
-  "escena.glb",
-  (gltf) => {
-    model = gltf.scene;
-    scene.add(model);
-    console.log(model);
 
-    // Buscar mesh o grupo con geometría para el piso
-    const pisoMesh = getMeshByName(model, "piso");
+      loader.load(
+        "escena.glb",
+        (gltf) => {
+          model = gltf.scene;
+          scene.add(model);
+          console.log(model);
 
-    if (pisoMesh) {
-      const pisoShape = new CANNON.Plane();
-      const pisoPos = pisoMesh.getWorldPosition(new THREE.Vector3());
-      const offsetY = 16.3; // ajusta este valor a tu gusto
+          // Buscar mesh o grupo con geometría para el piso
+          const pisoMesh = getMeshByName(model, "piso");
 
-      const pisoBody = new CANNON.Body({
-        mass: 0, // Objeto estático
-        shape: pisoShape,
-        material: floorMaterial,
-        position: new CANNON.Vec3(
-          pisoPos.x,
-          pisoPos.y + offsetY,
-          pisoPos.z
-        ),
-      });
+          if (pisoMesh) {
+            const pisoShape = new CANNON.Plane();
+            const pisoPos = pisoMesh.getWorldPosition(new THREE.Vector3());
 
-      pisoBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-      world.addBody(pisoBody);
+            // Aclaración: CANNON.Plane es un plano infinito.
+            // La posición solo define un punto en el plano.
+            // Para que la colisión sea efectiva en la altura correcta,
+            // el plano debe estar donde está el piso visual.
+            // Tu pisoMesh.position.y está en -5.
+            // La colisión se producirá en la altura y orientación del pisoMesh.
+            // No uses offsetY con CANNON.Plane, ya que su posición es el punto de origen.
+            // Si tu piso visual está en Y=-5, el cuerpo físico también debería estarlo.
+            // Si necesitas elevarlo, hazlo con la posición de THREE.Vector3
+            // al obtener la posición mundial.
+            const pisoBody = new CANNON.Body({
+              mass: 0, // Objeto estático
+              shape: pisoShape,
+              material: floorMaterial,
+              position: new CANNON.Vec3(
+                pisoPos.x,
+                pisoPos.y, // Usa la posición Y real del pisoMesh para la colisión
+                pisoPos.z
+              ),
+            });
 
-      console.log("Cuerpo físico creado para el piso usando CANNON.Plane");
-    } else {
-      console.warn("No se encontró mesh o grupo con nombre 'piso'");
-    }
+            // Gira el plano para que sea horizontal (por defecto es vertical)
+            pisoBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+            world.addBody(pisoBody);
 
-    // Buscar colisiones: mesh o grupo que empiece con "colision"
-    model.traverse((child) => {
-      if (child.name.startsWith("colision")) {
-        if (child.isMesh) {
-          agregarCuerpo(child);
-        } else if (child.isObject3D) {
-          child.traverse((nested) => {
-            if (nested.isMesh) {
-              agregarCuerpo(nested);
+            console.log("Cuerpo físico creado para el piso usando CANNON.Plane");
+          } else {
+            console.warn("No se encontró mesh o grupo con nombre 'piso'");
+          }
+
+          // Buscar colisiones, enemigos, aliados e ítems
+          model.traverse((child) => {
+            // Asegúrate de que el objeto sea visible si deseas que colisione
+            // child.visible = false; // Puedes hacerlos invisibles si solo son para colisión
+
+            if (child.name.startsWith("colision")) {
+              if (child.isMesh) {
+                agregarCuerpo(child, "colision");
+              } else if (child.isObject3D) {
+                child.traverse((nested) => {
+                  if (nested.isMesh) {
+                    agregarCuerpo(nested, "colision");
+                  }
+                });
+              }
+            } else if (child.name.startsWith("enemigo")) {
+              if (child.isMesh) {
+                agregarCuerpo(child, "enemigo");
+              } else if (child.isObject3D) {
+                child.traverse((nested) => {
+                  if (nested.isMesh) {
+                    agregarCuerpo(nested, "enemigo");
+                  }
+                });
+              }
+            } else if (child.name.startsWith("aliado")) {
+              if (child.isMesh) {
+                agregarCuerpo(child, "aliado");
+              } else if (child.isObject3D) {
+                child.traverse((nested) => {
+                  if (nested.isMesh) {
+                    agregarCuerpo(nested, "aliado");
+                  }
+                });
+              }
+            } else if (child.name.startsWith("item")) {
+              if (child.isMesh) {
+                agregarCuerpo(child, "item");
+              } else if (child.isObject3D) {
+                child.traverse((nested) => {
+                  if (nested.isMesh) {
+                    agregarCuerpo(nested, "item");
+                  }
+                });
+              }
             }
           });
+
+          console.log(
+            "Modelo y cuerpos físicos del piso, obstáculos, enemigos, aliados e ítems cargados correctamente."
+          );
+        },
+        undefined,
+        (error) => {
+          console.error("Error al cargar el modelo GLTF:", error);
         }
-      }
-    });
+      );
 
-    console.log("Modelo y cuerpos físicos del piso y obstáculos cargados correctamente.");
-  },
-  undefined,
-  (error) => {
-    console.error("Error al cargar el modelo GLTF:", error);
-  }
-);
+      // Función para obtener un mesh por nombre, buscando también dentro de grupos
+      function getMeshByName(model, name) {
+        let foundMesh = null;
 
-// Función para obtener un mesh por nombre, buscando también dentro de grupos
-function getMeshByName(model, name) {
-  let foundMesh = null;
-
-  model.traverse((child) => {
-    if (child.name === name) {
-      if (child.isMesh) {
-        foundMesh = child;
-        child.position.y = -5;
-      } else if (child.isObject3D) {
-        child.traverse((nested) => {
-          if (nested.isMesh && !foundMesh) {
-            foundMesh = nested;
-            nested.position.y = -5;
+        model.traverse((child) => {
+          if (child.name === name) {
+            if (child.isMesh) {
+              foundMesh = child;
+              // child.position.y = -5; // Esta línea puede ser problemática.
+              // Si el piso ya está modelado en Blender en su posición final, no la modifiques aquí.
+              // Si lo necesitas mover, asegúrate de que el cuerpo físico se cree en la misma nueva posición.
+            } else if (child.isObject3D) {
+              child.traverse((nested) => {
+                if (nested.isMesh && !foundMesh) {
+                  foundMesh = nested;
+                  // nested.position.y = -5; // Lo mismo aquí
+                }
+              });
+            }
           }
         });
+
+        return foundMesh;
       }
-    }
-  });
 
-  return foundMesh;
-}
+      // Función auxiliar para agregar cuerpo físico a un mesh
+      function agregarCuerpo(mesh, tipo) {
+        // Clonar la geometría si no quieres modificar la original de la malla
+        // const geometry = mesh.geometry.clone();
+        // geometry.computeBoundingBox();
 
-// Función auxiliar para agregar cuerpo físico a un mesh
-function agregarCuerpo(mesh) {
-  mesh.geometry.computeBoundingBox();
-  const size = new THREE.Vector3();
-  mesh.geometry.boundingBox.getSize(size);
+        // Asegúrate de que el mesh ya tiene un bounding box calculado o calcúlalo aquí
+        if (!mesh.geometry.boundingBox) {
+          mesh.geometry.computeBoundingBox();
+        }
 
-  const shape = new CANNON.Box(
-    new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
-  );
+        const size = new THREE.Vector3();
+        mesh.geometry.boundingBox.getSize(size);
 
-  const pos = mesh.getWorldPosition(new THREE.Vector3());
+        // La caja de Cannon debe ser la mitad del tamaño de Three.js (semidimensiones)
+        const shape = new CANNON.Box(
+          new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
+        );
 
-  const body = new CANNON.Body({
-    mass: 10, // Si querés que sea estático, usá 0
-    shape,
-    material: defaultMaterial,
-    position: new CANNON.Vec3(pos.x, pos.y, pos.z),
-  });
+        // Obtener la posición mundial del mesh para el cuerpo físico
+        const pos = mesh.getWorldPosition(new THREE.Vector3());
 
-  world.addBody(body);
-  dynamicObjects.push({ mesh, body });
+        let mass;
+        let material;
 
-  console.log(`Cuerpo físico creado para: ${mesh.name}`);
-}
+        switch (tipo) {
+          case "colision":
+            mass = 1; // Obstáculos fijos, mass = 0
+            material = defaultMaterial;
+            break;
+          case "enemigo":
+            mass = 50; // Masa para enemigos
+            material = enemyMaterial;
+            break;
+          case "aliado":
+            mass = 1; // Masa para aliados (pueden ser ligeros)
+            material = allyMaterial;
+            break;
+          case "item":
+            mass = 0.1; // Masa para ítems (casi sin masa, para que no interfieran mucho)
+            material = itemMaterial;
+            break;
+          default:
+            mass = 1; // Por defecto
+            material = defaultMaterial;
+            break;
+        }
+
+        const body = new CANNON.Body({
+          mass: mass,
+          shape: shape,
+          material: material,
+          position: new CANNON.Vec3(pos.x, pos.y, pos.z),
+          // Si son estáticos (mass: 0), no necesitan damping
+          linearDamping: mass > 0 ? 0.9 : 0, // Un poco de fricción de aire
+          angularDamping: mass > 0 ? 0.9 : 0,
+        });
+
+        // Asegúrate de que la orientación inicial del cuerpo físico coincida con la del mesh
+        const quat = mesh.getWorldQuaternion(new THREE.Quaternion());
+        body.quaternion.copy(quat);
+
+        world.addBody(body);
+        dynamicObjects.push({ mesh, body, tipo }); // Guardamos también el tipo
+        console.log(`Cuerpo físico de tipo '${tipo}' creado para: ${mesh.name}`);
+      }
 
       world.addEventListener("beginContact", (event) => {
         const bodyA = event.bodyA;
         const bodyB = event.bodyB;
 
-        const materialA = bodyA.material;
-        const materialB = bodyB.material;
+        // Es importante determinar el tipo de CADA cuerpo para una detección precisa
+        const getBodyInfo = (body) => {
+          const obj = dynamicObjects.find((o) => o.body === body);
+          if (obj) return { type: obj.tipo, material: obj.body.material };
+          if (body === airplaneBody)
+            return { type: "airplane", material: airplanePhysicsMaterial };
+          if (body.mass === 0 && body.material === floorMaterial)
+            return { type: "floor", material: floorMaterial };
+          return { type: "unknown", material: body.material }; // Fallback
+        };
 
-        const isAirplaneA = bodyA === airplaneBody;
-        const isAirplaneB = bodyB === airplaneBody;
+        const infoA = getBodyInfo(bodyA);
+        const infoB = getBodyInfo(bodyB);
 
-        const collidedWithObstacle =
-          (isAirplaneA && materialB === defaultMaterial) ||
-          (isAirplaneB && materialA === defaultMaterial);
+        const isAirplaneA = infoA.type === "airplane";
+        const isAirplaneB = infoB.type === "airplane";
 
-        const collidedWithFloor =
-          (isAirplaneA && materialB === floorMaterial) ||
-          (isAirplaneB && materialA === floorMaterial);
+        // Detección de colisiones contra el avión
+        if (isAirplaneA || isAirplaneB) {
+          const otherBodyInfo = isAirplaneA ? infoB : infoA;
 
-        if (collidedWithObstacle) {
-          console.log("¡COLISIÓN CON OBSTÁCULO DETECTADA! GAME OVER.");
-          if (!gameOver) {
-            gameOver = true;
-            const gameOverText = document.getElementById("gameOverText");
-            gameOverText.style.display = "block";
+          if (otherBodyInfo.type === "colision") {
+            console.log("¡COLISIÓN CON OBSTÁCULO DETECTADA! GAME OVER.");
+          } else if (otherBodyInfo.type === "enemigo") {
+            console.log("¡COLISIÓN CON ENEMIGO DETECTADA! Recibiste daño.");
+            if (!gameOver) {
+              gameOver = true;
+              const gameOverText = document.getElementById("gameOverText");
+              gameOverText.style.display = "block";
 
-            if (mixer) {
-              mixer.timeScale = 0;
+              if (mixer) {
+                mixer.timeScale = 0; // Detiene las animaciones del robot
+              }
+              joystickInput.strafe = 0;
+              joystickInput.forward = 0;
+              if (airplaneBody) {
+                airplaneBody.velocity.set(0, 0, 0);
+                airplaneBody.angularVelocity.set(0, 0, 0);
+              }
             }
-            joystickInput.strafe = 0;
-            joystickInput.forward = 0;
-            if (airplaneBody) {
-              airplaneBody.velocity.set(0, 0, 0);
-              airplaneBody.angularVelocity.set(0, 0, 0);
-            }
+            // Aquí puedes añadir lógica para restar vida, etc.
+          } else if (otherBodyInfo.type === "aliado") {
+            console.log("¡COLISIÓN CON ALIADO DETECTADA! Ayuda recibida.");
+            // Aquí puedes añadir lógica para ganar puntos, etc.
+          } else if (otherBodyInfo.type === "item") {
+            console.log("¡COLISIÓN CON ÍTEM DETECTADA! Recogiste un objeto.");
+            // Aquí puedes añadir lógica para recoger el ítem, hacerlo desaparecer, etc.
+            // Puedes querer remover el body y el mesh del item aquí.
+            // Ejemplo: if (otherBodyInfo.body) world.removeBody(otherBodyInfo.body);
+            //          if (otherBodyInfo.mesh) scene.remove(otherBodyInfo.mesh);
+          } else if (otherBodyInfo.type === "floor") {
+            console.log("Colisión con el suelo (piso)");
           }
-        } else if (collidedWithFloor) {
-          console.log("Colisión con el suelo (piso)");
         }
       });
 
-      // --- Función para reiniciar el juego ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-      
       // Variable global o en ámbito donde se mantenga entre frames
       let smoothedStrafe = 0;
       const threshold = 0.5; // Ajustá a lo que te guste
@@ -411,8 +530,7 @@ function agregarCuerpo(mesh) {
         const isReturning = Math.abs(strafe) < Math.abs(smoothedStrafe);
         const smoothingSpeed = isReturning ? returnSpeed : turnSpeed;
 
-        smoothedStrafe +=
-          (strafe - smoothedStrafe) * deltaTime * smoothingSpeed;
+        smoothedStrafe += (strafe - smoothedStrafe) * deltaTime * smoothingSpeed;
 
         // Normalización lineal (de -1 a 1) a tiempos
         const normalized = (smoothedStrafe + 1) / 2; // -1 → 0, 1 → 1
@@ -441,10 +559,6 @@ function agregarCuerpo(mesh) {
 
       function animate() {
         requestAnimationFrame(animate);
-        dynamicObjects.forEach((obj) => {
-          obj.mesh.position.copy(obj.body.position);
-          obj.mesh.quaternion.copy(obj.body.quaternion);
-        });
         const deltaTime = clock.getDelta();
 
         if (gameOver) {
@@ -458,11 +572,18 @@ function agregarCuerpo(mesh) {
         // Actualizar físicas
         world.step(fixedTimeStep, deltaTime, maxSubSteps);
 
+        // Sincronizar meshes visuales con cuerpos físicos
+        dynamicObjects.forEach((obj) => {
+          obj.mesh.position.copy(obj.body.position);
+          obj.mesh.quaternion.copy(obj.body.quaternion);
+        });
 
-        const maxLeftOffset = 4; // límite izquierdo (negativo)
-        const maxRightOffset = 4.5; // límite derecho (positivo)
-
+        // Sincronizar el modelo del avión con su cuerpo físico
         if (airplaneModel && airplaneBody) {
+          airplaneModel.position.copy(airplaneBody.position);
+          airplaneModel.quaternion.copy(airplaneBody.quaternion);
+
+          // Lógica de movimiento lateral y rotación del avión
           const maxRotation = 0.5;
           const strafe = joystickInput.strafe;
           const threshold = 0.3; // Sensibilidad mínima
@@ -485,7 +606,7 @@ function agregarCuerpo(mesh) {
 
           const lateralSpeed = 4;
 
-          airplaneBody.velocity.z = -6;
+          airplaneBody.velocity.z = -6; // Movimiento constante hacia adelante/atrás
 
           const maxLeftOffset = 4; // límite izquierdo (positivo para cálculo, negativo en posición)
           const maxRightOffset = 4.5; // límite derecho (positivo)
@@ -497,7 +618,7 @@ function agregarCuerpo(mesh) {
           } else if (smoothedStrafe > 0 && currentX < maxRightOffset) {
             airplaneBody.velocity.x = lateralSpeed * Math.abs(smoothedStrafe);
           } else {
-            airplaneBody.velocity.x = 0;
+            airplaneBody.velocity.x = 0; // Detiene el movimiento si está en el límite o el joystick está centrado
           }
 
           // --- Suavizado rotación cerca de límites ---
@@ -531,25 +652,14 @@ function agregarCuerpo(mesh) {
             rotationInput *= rightFactor;
           }
 
-          // Modelo animado = posición + inclinación visual suavizada
-          airplaneModel.position.copy(airplaneBody.position);
-          airplaneModel.quaternion.copy(airplaneBody.quaternion);
-
+          // Aplicar la rotación visual solo al modelo, no al cuerpo físico
           const euler = new THREE.Euler().setFromQuaternion(
             airplaneModel.quaternion
           );
           euler.y -= maxRotation * rotationInput;
           airplaneModel.quaternion.setFromEuler(euler);
 
-
-          // const antiGravity = new CANNON.Vec3(
-          //   0,
-          //   -world.gravity.y * airplaneBody.mass,
-          //   0
-          // );
-          // airplaneBody.applyLocalForce(antiGravity, new CANNON.Vec3(0, 0, 0));
-
-          // --- CÁMARA ---
+          // Actualizar la cámara
           cameraTarget.position.copy(airplaneBody.position);
           cameraTarget.quaternion.copy(airplaneBody.quaternion);
 
@@ -564,12 +674,6 @@ function agregarCuerpo(mesh) {
           camera.position.copy(cameraPosition);
           camera.lookAt(cameraTarget.position);
         }
-
-        // updateAnimationWithJoystick(
-        //   joystickInput.strafe,
-        //   actionRotate,
-        //   deltaTime
-        // );
 
         if (mixer) {
           mixer.update(deltaTime);
