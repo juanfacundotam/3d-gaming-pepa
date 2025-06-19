@@ -107,30 +107,82 @@
       const world = new CANNON.World();
       world.gravity.set(0, -9.82, 0); // Gravedad estándar (ajustable)
 
+
+
+
+
+
+
+
+
       const defaultMaterial = new CANNON.Material("default");
       const airplanePhysicsMaterial = new CANNON.Material("airplaneMaterial");
       const floorMaterial = new CANNON.Material("floorMaterial"); // Material para el suelo
+      const enemyMaterial = new CANNON.Material("enemyMaterial");
+      const allyMaterial = new CANNON.Material("allyMaterial");
+      const itemMaterial = new CANNON.Material("itemMaterial");
 
-      const airplaneObstacleContactMaterial = new CANNON.ContactMaterial(
-        airplanePhysicsMaterial,
-        defaultMaterial, // Para colisiones con obstáculos generales
-        {
-          friction: 0.1,
-          restitution: 0.1,
-        }
-      );
-      world.addContactMaterial(airplaneObstacleContactMaterial);
-
+      
       // ContactMaterial para la colisión entre el avión y el suelo
       const airplaneFloorContactMaterial = new CANNON.ContactMaterial(
         airplanePhysicsMaterial,
         floorMaterial,
         {
           friction: 0, // Ajusta según necesidad para que no patine
-          restitution: 0.0,
+          restitution: 0,
         }
       );
       world.addContactMaterial(airplaneFloorContactMaterial);
+      // Definir nuevos materiales para las categorías
+      
+      const airplaneObstacleContactMaterial = new CANNON.ContactMaterial(
+        airplanePhysicsMaterial,
+        defaultMaterial, // Para colisiones con obstáculos generales
+        {
+          friction: 0.1,
+          restitution: 5,
+        }
+      );
+      world.addContactMaterial(airplaneObstacleContactMaterial);
+
+      // Configurar materiales de contacto
+      // Puedes ajustar estos valores según el comportamiento que desees para las interacciones
+      const enemyContactMaterial = new CANNON.ContactMaterial(
+        airplanePhysicsMaterial, // La colisión es entre el avión y el enemigo
+        enemyMaterial,
+        {
+          friction: 0.5,
+          restitution: 0.1,
+        }
+      );
+      world.addContactMaterial(enemyContactMaterial);
+
+      const allyContactMaterial = new CANNON.ContactMaterial(
+        airplanePhysicsMaterial, // La colisión es entre el avión y el aliado
+        allyMaterial,
+        {
+          friction: 0.3,
+          restitution: 0.5,
+        }
+      );
+      world.addContactMaterial(allyContactMaterial);
+
+      const itemContactMaterial = new CANNON.ContactMaterial(
+        airplanePhysicsMaterial, // La colisión es entre el avión y el ítem
+        itemMaterial,
+        {
+          friction: 0.8,
+          restitution: 0.7,
+        }
+      );
+      world.addContactMaterial(itemContactMaterial);
+
+
+
+
+
+
+
 
       let airplaneModel;
       let airplaneBody;
@@ -180,7 +232,8 @@
             material: airplanePhysicsMaterial,
             position: new CANNON.Vec3(
               airplaneModel.position.x,
-              airplaneModel.position.y + size.y / 2, // Ajustar la Y para que la base del cuerpo esté en la posición deseada
+              // airplaneModel.position.y + size.y / 2, // Ajustar la Y para que la base del cuerpo esté en la posición deseada
+              airplaneModel.position.y, // Ajustar la Y para que la base del cuerpo esté en la posición deseada
               airplaneModel.position.z
             ),
             linearDamping: 0.95,
@@ -213,42 +266,7 @@
         }
       );
 
-      // Definir nuevos materiales para las categorías
-      const enemyMaterial = new CANNON.Material("enemyMaterial");
-      const allyMaterial = new CANNON.Material("allyMaterial");
-      const itemMaterial = new CANNON.Material("itemMaterial");
 
-      // Configurar materiales de contacto
-      // Puedes ajustar estos valores según el comportamiento que desees para las interacciones
-      const enemyContactMaterial = new CANNON.ContactMaterial(
-        airplanePhysicsMaterial, // La colisión es entre el avión y el enemigo
-        enemyMaterial,
-        {
-          friction: 0.5,
-          restitution: 0.1,
-        }
-      );
-      world.addContactMaterial(enemyContactMaterial);
-
-      const allyContactMaterial = new CANNON.ContactMaterial(
-        airplanePhysicsMaterial, // La colisión es entre el avión y el aliado
-        allyMaterial,
-        {
-          friction: 0.3,
-          restitution: 0.5,
-        }
-      );
-      world.addContactMaterial(allyContactMaterial);
-
-      const itemContactMaterial = new CANNON.ContactMaterial(
-        airplanePhysicsMaterial, // La colisión es entre el avión y el ítem
-        itemMaterial,
-        {
-          friction: 0.8,
-          restitution: 0.7,
-        }
-      );
-      world.addContactMaterial(itemContactMaterial);
 
       let dynamicObjects = []; // Asegúrate de que esta variable esté correctamente inicializada
       let model;
@@ -381,71 +399,67 @@
       }
 
       // Función auxiliar para agregar cuerpo físico a un mesh
-      function agregarCuerpo(mesh, tipo) {
-        // Clonar la geometría si no quieres modificar la original de la malla
-        // const geometry = mesh.geometry.clone();
-        // geometry.computeBoundingBox();
+     // Función auxiliar para agregar cuerpo físico a un mesh
+// Función auxiliar para agregar cuerpo físico a un mesh
+function agregarCuerpo(mesh, tipo) {
+  // Asegúrate de que el mesh está en la escena y tiene sus transformaciones aplicadas.
+  // Obtener el bounding box del mesh CON SUS TRANSFORMACIONES APLICADAS (posición, rotación, escala)
+  const bbox = new THREE.Box3().setFromObject(mesh);
+  const size = new THREE.Vector3();
+  bbox.getSize(size);
 
-        // Asegúrate de que el mesh ya tiene un bounding box calculado o calcúlalo aquí
-        if (!mesh.geometry.boundingBox) {
-          mesh.geometry.computeBoundingBox();
-        }
+  // La caja de Cannon debe ser la mitad del tamaño de Three.js (semidimensiones)
+  // El método setFromObject ya te da las dimensiones correctas después de escalar.
+  const shape = new CANNON.Box(
+    new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
+  );
 
-        const size = new THREE.Vector3();
-        mesh.geometry.boundingBox.getSize(size);
+  // Obtener la posición mundial del mesh para el cuerpo físico
+  const pos = mesh.getWorldPosition(new THREE.Vector3());
+  const quat = mesh.getWorldQuaternion(new THREE.Quaternion());
 
-        // La caja de Cannon debe ser la mitad del tamaño de Three.js (semidimensiones)
-        const shape = new CANNON.Box(
-          new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
-        );
+  let mass;
+  let material;
 
-        // Obtener la posición mundial del mesh para el cuerpo físico
-        const pos = mesh.getWorldPosition(new THREE.Vector3());
+  switch (tipo) {
+    case "colision":
+      mass = 0.000001; // Obstáculos fijos, mass = 0
+      material = defaultMaterial;
+      break;
+    case "enemigo":
+      mass = 0.000001; // Masa para enemigos
+      material = enemyMaterial;
+      break;
+    case "aliado":
+      mass = 0.000001; // Masa para aliados (pueden ser ligeros)
+      material = allyMaterial;
+      break;
+    case "item":
+      mass = 0.000001; // Masa para ítems (casi sin masa, para que no interfieran mucho)
+      material = itemMaterial;
+      break;
+    default:
+      mass = 0; // Por defecto para objetos estáticos
+      material = defaultMaterial;
+      break;
+  }
 
-        let mass;
-        let material;
+  const body = new CANNON.Body({
+    mass: mass,
+    shape: shape,
+    material: material,
+    position: new CANNON.Vec3(pos.x, pos.y, pos.z),
+    linearDamping: mass > 0 ? 0.9 : 0, // Damping solo para cuerpos con masa
+    angularDamping: mass > 0 ? 0.9 : 0, // Damping solo para cuerpos con masa
+  });
 
-        switch (tipo) {
-          case "colision":
-            mass = 1; // Obstáculos fijos, mass = 0
-            material = defaultMaterial;
-            break;
-          case "enemigo":
-            mass = 50; // Masa para enemigos
-            material = enemyMaterial;
-            break;
-          case "aliado":
-            mass = 1; // Masa para aliados (pueden ser ligeros)
-            material = allyMaterial;
-            break;
-          case "item":
-            mass = 0.1; // Masa para ítems (casi sin masa, para que no interfieran mucho)
-            material = itemMaterial;
-            break;
-          default:
-            mass = 1; // Por defecto
-            material = defaultMaterial;
-            break;
-        }
+  // Asegúrate de que la orientación inicial del cuerpo físico coincida con la del mesh
+  body.quaternion.copy(quat);
 
-        const body = new CANNON.Body({
-          mass: mass,
-          shape: shape,
-          material: material,
-          position: new CANNON.Vec3(pos.x, pos.y, pos.z),
-          // Si son estáticos (mass: 0), no necesitan damping
-          linearDamping: mass > 0 ? 0.9 : 0, // Un poco de fricción de aire
-          angularDamping: mass > 0 ? 0.9 : 0,
-        });
-
-        // Asegúrate de que la orientación inicial del cuerpo físico coincida con la del mesh
-        const quat = mesh.getWorldQuaternion(new THREE.Quaternion());
-        body.quaternion.copy(quat);
-
-        world.addBody(body);
-        dynamicObjects.push({ mesh, body, tipo }); // Guardamos también el tipo
-        console.log(`Cuerpo físico de tipo '${tipo}' creado para: ${mesh.name}`);
-      }
+  world.addBody(body);
+  dynamicObjects.push({ mesh, body, tipo });
+  console.log(`Cuerpo físico de tipo '${tipo}' creado para: ${mesh.name}`);
+}
 
       world.addEventListener("beginContact", (event) => {
         const bodyA = event.bodyA;
@@ -474,6 +488,7 @@
 
           if (otherBodyInfo.type === "colision") {
             console.log("¡COLISIÓN CON OBSTÁCULO DETECTADA! GAME OVER.");
+            airplaneBody.angularVelocity.set(0, 0, 0);
           } else if (otherBodyInfo.type === "enemigo") {
             console.log("¡COLISIÓN CON ENEMIGO DETECTADA! Recibiste daño.");
             if (!gameOver) {
