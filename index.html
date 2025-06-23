@@ -53,6 +53,28 @@
         z-index: 100;
         pointer-events: none;
       }
+      /* Estilos para el contenedor de vidas */
+      #heartsContainer {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        display: flex;
+        gap: 5px; /* Espacio entre corazones */
+        z-index: 10;
+      }
+
+      .heart {
+        width: 30px; /* Tamaño del corazón */
+        height: 30px;
+        background-color: red; /* Color del corazón lleno */
+        clip-path: path(
+          "M12 4.248c-3.148-3.097-8.267-3.097-11.415 0-3.149 3.098-3.149 8.197 0 11.295l11.415 11.397 11.415-11.397c3.149-3.098 3.149-8.197 0-11.295-3.148-3.097-8.267-3.097-11.415 0z"
+        ); /* Forma de corazón SVG */
+      }
+
+      .heart.empty {
+        background-color: gray; /* Color del corazón vacío */
+      }
     </style>
   </head>
 
@@ -62,7 +84,7 @@
     </div>
 
     <div id="gameOverText" style="display: none">GAME OVER</div>
-
+    <div id="heartsContainer"></div>
     <script type="importmap">
       {
         "imports": {
@@ -94,11 +116,17 @@
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
-
       // Luces
       const light = new THREE.DirectionalLight(0xffffff, 1);
       light.position.set(5, 10, 7.5);
       scene.add(light);
+
+      const loaderImage = new THREE.TextureLoader();
+      loaderImage.load("fondo.jpg", (texture) => {
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        scene.background = texture;
+        scene.environment = texture;
+      });
 
       const ambient = new THREE.AmbientLight(0x404040);
       scene.add(ambient);
@@ -108,6 +136,29 @@
       world.gravity.set(0, -9.82, 0); // Gravedad estándar (ajustable)
 
       const debugBoxes = [];
+      let airplaneVisualGroup;
+      let personaje = {
+        vidas: 4,
+        maxVidas: 4,
+        velocidad: 4,
+      };
+      // Función para actualizar la visualización de los corazones
+      function updateHeartsDisplay() {
+        const heartsContainer = document.getElementById("heartsContainer");
+        heartsContainer.innerHTML = ""; // Limpiar los corazones existentes
+
+        for (let i = 0; i < personaje.maxVidas; i++) {
+          const heart = document.createElement("div");
+          heart.classList.add("heart");
+          if (i >= personaje.vidas) {
+            heart.classList.add("empty"); // Corazón vacío si las vidas son menores que el índice
+          }
+          heartsContainer.appendChild(heart);
+        }
+      }
+
+      // Llamar al inicio para mostrar los corazones iniciales
+      updateHeartsDisplay();
 
       const defaultMaterial = new CANNON.Material("default");
       const airplanePhysicsMaterial = new CANNON.Material("airplaneMaterial");
@@ -175,6 +226,25 @@
       let mixer = null;
       let action1, actionRotate;
       let gameOver = false;
+      let isInvulnerable = false;
+      let flickerInterval; // <-- NUEVA VARIABLE: Para almacenar el ID del intervalo de parpadeo
+
+      // --- Función para iniciar el parpadeo del robot ---
+      function startFlicker() {
+        if (airplaneModel) {
+          flickerInterval = setInterval(() => {
+            airplaneModel.visible = !airplaneModel.visible; // Alterna la visibilidad
+          }, 100); // Parpadea cada 100 milisegundos
+        }
+      }
+
+      // --- Función para detener el parpadeo y asegurar que el robot sea visible ---
+      function stopFlicker() {
+        clearInterval(flickerInterval); // Detiene el intervalo
+        if (airplaneModel) {
+          airplaneModel.visible = true; // Asegura que el robot sea visible
+        }
+      }
 
       const cameraTarget = new THREE.Object3D();
       scene.add(cameraTarget);
@@ -205,13 +275,14 @@
           bbox.getSize(size);
           // Dividir por 2 porque CANNON.Box toma las "semidimensiones"
           const boxShape = new CANNON.Box(
-            new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
+            new CANNON.Vec3(size.x / 1.5, size.y / 2, size.z / 2)
           );
 
           // La posición inicial del cuerpo físico debe coincidir con la posición del modelo visual
           // Considera que el punto de pivote del modelo GLTF puede no estar en su centro geométrico.
           // Si el modelo visual está 'dentro' del piso, ajusta la Y.
           // Aquí uso la posición del modelo visual como base.
+
           airplaneBody = new CANNON.Body({
             mass: 100,
             shape: boxShape,
@@ -226,19 +297,24 @@
             angularDamping: 0.95,
           });
           world.addBody(airplaneBody);
+
           function crearDebugBox(body, size) {
-  const geometry = new THREE.BoxGeometry(size.x * 2, size.y * 2, size.z * 2);
-  const material = new THREE.MeshBasicMaterial({
-    color: 0xff0000,
-    wireframe: true,
-  });
-  const box = new THREE.Mesh(geometry, material);
-  scene.add(box);
-  debugBoxes.push({ mesh: box, body: body });
-}
+            const geometry = new THREE.BoxGeometry(
+              size.x * 2,
+              size.y * 2,
+              size.z * 2
+            );
+            const material = new THREE.MeshBasicMaterial({
+              color: 0xff0000,
+              wireframe: true,
+            });
+            const box = new THREE.Mesh(geometry, material);
+            scene.add(box);
+            debugBoxes.push({ mesh: box, body: body });
+          }
           crearDebugBox(
             airplaneBody,
-            new THREE.Vector3(size.x / 2, size.y / 2, size.z / 2)
+            new THREE.Vector3(size.x / 1.5, size.y / 2, size.z / 2)
           );
           console.log("¡Modelo de avión y cuerpo físico cargados!");
 
@@ -258,6 +334,22 @@
             action1.enabled = true;
             action1.play();
           }
+          // Crear grupo contenedor para el modelo visual
+          const airplaneVisualGroup = new THREE.Group();
+          scene.add(airplaneVisualGroup);
+
+          // Agregás el modelo al grupo visual
+          airplaneVisualGroup.add(airplaneModel);
+
+          // NO cambies la posición de airplaneVisualGroup (va a seguir el cuerpo físico)
+          airplaneVisualGroup.position.set(
+            airplaneBody.position.x - 1.26,
+            airplaneBody.position.y - 2,
+            airplaneBody.position.z
+          );
+
+          // Acá ajustás solo la posición del modelo visual dentro del grupo
+          airplaneModel.position.set(0, 0, 0); // Ajustá Y o Z para centrar el robot en la caja
         },
         undefined,
         (error) => {
@@ -298,7 +390,7 @@
               material: floorMaterial,
               position: new CANNON.Vec3(
                 pisoPos.x,
-                pisoPos.y, // Usa la posición Y real del pisoMesh para la colisión
+                pisoPos.y + 0.65, // Usa la posición Y real del pisoMesh para la colisión
                 pisoPos.z
               ),
             });
@@ -429,12 +521,12 @@
             // *** AJUSTE DE DIMENSIÓN Y ALTURA PARA OBJETOS "colision" ***
 
             // Opción 1: Reducir la altura de la caja de colisión a la mitad
-            boxSizeY = 1.7; // Esto hace la caja de colisión en Y la mitad de alta
-            adjustedPosY = pos.y + boxSizeY; // pos.y (base visual) + nueva mitad de altura de la caja
-            boxSizeX = 1.7; // Esto hace la caja de colisión en Y la mitad de alta
-            adjustedPosX = pos.x + boxSizeX; // pos.y (base visual) + nueva mitad de altura de la caja
-            boxSizeZ = 1.7; // Esto hace la caja de colisión en Y la mitad de alta
-            adjustedPosZ = pos.z + boxSizeZ; // pos.y (base visual) + nueva mitad de altura de la caja
+            boxSizeY = 1;
+            adjustedPosY = pos.y + boxSizeY;
+            boxSizeX = 1.5;
+            adjustedPosX = pos.x + boxSizeX;
+            boxSizeZ = 1;
+            adjustedPosZ = pos.z + boxSizeZ;
 
             // Puedes sumar un offset adicional si el modelo 3D tiene el origen diferente
             // adjustedPosY = pos.y + boxSizeY + 0.1; // Ejemplo: sube la caja un poco más
@@ -443,29 +535,43 @@
           case "enemigo":
             mass = 0.000001;
             material = enemyMaterial;
-            boxSizeY = 40;
-            // No se ajustan dimensiones ni posición Y aquí.
-            adjustedPosY = pos.y; // El centro del cuerpo físico será el centro del mesh visible
+            boxSizeY = 1;
+            adjustedPosY = pos.y + boxSizeY;
+            boxSizeX = 1.5;
+            adjustedPosX = pos.x + boxSizeX;
+            boxSizeZ = 1;
+            adjustedPosZ = pos.z + boxSizeZ;
             break;
           case "aliado":
             mass = 0.000001;
             material = allyMaterial;
-            boxSizeY = 1.8;
-            // No se ajustan dimensiones ni posición Y aquí.
-            adjustedPosY = pos.y;
+            boxSizeY = 1;
+            adjustedPosY = pos.y + boxSizeY;
+            boxSizeX = 1.5;
+            adjustedPosX = pos.x + boxSizeX;
+            boxSizeZ = 1;
+            adjustedPosZ = pos.z + boxSizeZ;
             break;
           case "item":
             mass = 0.000001;
             material = itemMaterial;
-            boxSizeY = 1.8;
-            // No se ajustan dimensiones ni posición Y aquí.
-            adjustedPosY = pos.y;
+            boxSizeY = 1;
+            adjustedPosY = pos.y + boxSizeY;
+            boxSizeX = 1.5;
+            adjustedPosX = pos.x + boxSizeX;
+            boxSizeZ = 1;
+            adjustedPosZ = pos.z + boxSizeZ;
             break;
           default:
             mass = 0;
             material = defaultMaterial;
             // No se ajustan dimensiones ni posición Y aquí.
-            adjustedPosY = pos.y;
+            boxSizeY = 1;
+            adjustedPosY = pos.y + boxSizeY;
+            boxSizeX = 1.5;
+            adjustedPosX = pos.x + boxSizeX;
+            boxSizeZ = 1;
+            adjustedPosZ = pos.z + boxSizeZ;
             break;
         }
 
@@ -538,37 +644,84 @@
           const otherBodyInfo = isAirplaneA ? infoB : infoA;
 
           if (otherBodyInfo.type === "colision") {
-            console.log("¡COLISIÓN CON OBSTÁCULO DETECTADA! GAME OVER.");
+            console.log("¡COLISIÓN CON OBSTÁCULO DETECTADA!");
+            if (!isInvulnerable) {
+              personaje.vidas -= 1;
+              updateHeartsDisplay(); // <--- AGREGADO
+              isInvulnerable = true; // El personaje ahora es invulnerable
+
+              startFlicker(); // <--- AGREGADO: Inicia el parpadeo
+              setTimeout(() => {
+                isInvulnerable = false;
+                stopFlicker(); // <--- AGREGADO: Detiene el parpadeo
+                console.log("El personaje ha vuelto a ser vulnerable.");
+              }, 3000);
+
+              console.log(`Vidas restantes: ${personaje.vidas}`);
+            }
+
             airplaneBody.angularVelocity.set(0, 0, 0);
           } else if (otherBodyInfo.type === "enemigo") {
             console.log("¡COLISIÓN CON ENEMIGO DETECTADA! Recibiste daño.");
-            if (!gameOver) {
-              gameOver = true;
-              const gameOverText = document.getElementById("gameOverText");
-              gameOverText.style.display = "block";
+            if (!isInvulnerable) {
+              personaje.vidas -= 2;
+              updateHeartsDisplay(); // <--- AGREGADO
+              isInvulnerable = true; // El personaje ahora es invulnerable
 
-              if (mixer) {
-                mixer.timeScale = 0; // Detiene las animaciones del robot
-              }
-              joystickInput.strafe = 0;
-              joystickInput.forward = 0;
-              if (airplaneBody) {
-                airplaneBody.velocity.set(0, 0, 0);
-                airplaneBody.angularVelocity.set(0, 0, 0);
-              }
+              startFlicker(); // <--- AGREGADO: Inicia el parpadeo
+              setTimeout(() => {
+                isInvulnerable = false;
+                stopFlicker(); // <--- AGREGADO: Detiene el parpadeo
+                console.log("El personaje ha vuelto a ser vulnerable.");
+              }, 3000);
             }
+            console.log(`Vidas restantes: ${personaje.vidas}`);
+
             // Aquí puedes añadir lógica para restar vida, etc.
           } else if (otherBodyInfo.type === "aliado") {
             console.log("¡COLISIÓN CON ALIADO DETECTADA! Ayuda recibida.");
+                            personaje.vidas = 4;
+              updateHeartsDisplay(); // <--- AGREGADO
+              console.log(`Vidas restantes: ${personaje.vidas}`);
             // Aquí puedes añadir lógica para ganar puntos, etc.
           } else if (otherBodyInfo.type === "item") {
             console.log("¡COLISIÓN CON ÍTEM DETECTADA! Recogiste un objeto.");
+            if (personaje.vidas < personaje.maxVidas) {
+              // <--- AGREGADO (condición para no superar maxVidas)
+              personaje.vidas += 1;
+              updateHeartsDisplay(); // <--- AGREGADO
+              console.log(`Vidas restantes: ${personaje.vidas}`);
+            }
+
+            // Remover el cuerpo físico y el mesh del ítem después de recogerlo
+            if (otherBodyInfo.body) {
+              world.removeBody(otherBodyInfo.body);
+              dynamicObjects = dynamicObjects.filter(
+                (obj) => obj.body !== otherBodyInfo.body
+              );
+            }
+            if (otherBodyInfo.mesh) {
+              otherBodyInfo.mesh.visible = false; // O scene.remove(otherBodyInfo.mesh);
+            }
             // Aquí puedes añadir lógica para recoger el ítem, hacerlo desaparecer, etc.
             // Puedes querer remover el body y el mesh del item aquí.
             // Ejemplo: if (otherBodyInfo.body) world.removeBody(otherBodyInfo.body);
             //          if (otherBodyInfo.mesh) scene.remove(otherBodyInfo.mesh);
           } else if (otherBodyInfo.type === "floor") {
             console.log("Colisión con el suelo (piso)");
+          }
+          if (personaje.vidas <= 0 && !gameOver) {
+            gameOver = true;
+            const gameOverText = document.getElementById("gameOverText");
+            gameOverText.style.display = "block";
+
+            if (mixer) {
+              mixer.timeScale = 0;
+            }
+            if (airplaneBody) {
+              airplaneBody.velocity.set(0, 0, 0);
+              airplaneBody.angularVelocity.set(0, 0, 0);
+            }
           }
         }
       });
@@ -647,7 +800,10 @@
           debug.mesh.position.copy(debug.body.position);
           debug.mesh.quaternion.copy(debug.body.quaternion);
         }
-
+        if (airplaneBody && airplaneVisualGroup) {
+          airplaneVisualGroup.position.copy(airplaneBody.position);
+          airplaneVisualGroup.quaternion.copy(airplaneBody.quaternion);
+        }
         // Sincronizar el modelo del avión con su cuerpo físico
         if (airplaneModel && airplaneBody) {
           airplaneModel.position.copy(airplaneBody.position);
