@@ -301,7 +301,7 @@
               material: floorMaterial,
               position: new CANNON.Vec3(
                 pisoPos.x,
-                pisoPos.y + 0.7, // Usa la posición Y real del pisoMesh para la colisión
+                pisoPos.y, // Usa la posición Y real del pisoMesh para la colisión
                 pisoPos.z
               ),
             });
@@ -428,9 +428,7 @@ function agregarCuerpo(mesh, tipo) {
       // *** AJUSTE DE DIMENSIÓN Y ALTURA PARA OBJETOS "colision" ***
 
       // Opción 1: Reducir la altura de la caja de colisión a la mitad
-      boxSizeZ = 1; // Esto hace la caja de colisión en Y la mitad de alta
-      boxSizeX = 1; // Esto hace la caja de colisión en Y la mitad de alta
-      boxSizeY = 1; // Esto hace la caja de colisión en Y la mitad de alta
+      boxSizeY = 1.8; // Esto hace la caja de colisión en Y la mitad de alta
 
       // Luego, ajusta la posición Y del cuerpo físico.
       // Si el modelo visible se "hunde" la mitad, su base visual está en pos.y.
