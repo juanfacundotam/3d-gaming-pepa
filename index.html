@@ -107,13 +107,7 @@
       const world = new CANNON.World();
       world.gravity.set(0, -9.82, 0); // Gravedad estándar (ajustable)
 
-
-
-
-
-
-
-
+      const debugBoxes = [];
 
       const defaultMaterial = new CANNON.Material("default");
       const airplanePhysicsMaterial = new CANNON.Material("airplaneMaterial");
@@ -122,7 +116,6 @@
       const allyMaterial = new CANNON.Material("allyMaterial");
       const itemMaterial = new CANNON.Material("itemMaterial");
 
-      
       // ContactMaterial para la colisión entre el avión y el suelo
       const airplaneFloorContactMaterial = new CANNON.ContactMaterial(
         airplanePhysicsMaterial,
@@ -134,7 +127,7 @@
       );
       world.addContactMaterial(airplaneFloorContactMaterial);
       // Definir nuevos materiales para las categorías
-      
+
       const airplaneObstacleContactMaterial = new CANNON.ContactMaterial(
         airplanePhysicsMaterial,
         defaultMaterial, // Para colisiones con obstáculos generales
@@ -176,13 +169,6 @@
         }
       );
       world.addContactMaterial(itemContactMaterial);
-
-
-
-
-
-
-
 
       let airplaneModel;
       let airplaneBody;
@@ -240,7 +226,20 @@
             angularDamping: 0.95,
           });
           world.addBody(airplaneBody);
-
+          function crearDebugBox(body, size) {
+  const geometry = new THREE.BoxGeometry(size.x * 2, size.y * 2, size.z * 2);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xff0000,
+    wireframe: true,
+  });
+  const box = new THREE.Mesh(geometry, material);
+  scene.add(box);
+  debugBoxes.push({ mesh: box, body: body });
+}
+          crearDebugBox(
+            airplaneBody,
+            new THREE.Vector3(size.x / 2, size.y / 2, size.z / 2)
+          );
           console.log("¡Modelo de avión y cuerpo físico cargados!");
 
           if (gltf.animations && gltf.animations.length > 1) {
@@ -265,8 +264,6 @@
           console.error("Error al cargar el modelo GLTF de avión:", error);
         }
       );
-
-
 
       let dynamicObjects = []; // Asegúrate de que esta variable esté correctamente inicializada
       let model;
@@ -310,7 +307,9 @@
             pisoBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
             world.addBody(pisoBody);
 
-            console.log("Cuerpo físico creado para el piso usando CANNON.Plane");
+            console.log(
+              "Cuerpo físico creado para el piso usando CANNON.Plane"
+            );
           } else {
             console.warn("No se encontró mesh o grupo con nombre 'piso'");
           }
@@ -399,95 +398,119 @@
       }
 
       // Función auxiliar para agregar cuerpo físico a un mesh
-     // Función auxiliar para agregar cuerpo físico a un mesh
-// Función auxiliar para agregar cuerpo físico a un mesh
-// Función auxiliar para agregar cuerpo físico a un mesh
-// Función auxiliar para agregar cuerpo físico a un mesh
-function agregarCuerpo(mesh, tipo) {
-  const bbox = new THREE.Box3().setFromObject(mesh);
-  const size = new THREE.Vector3();
-  bbox.getSize(size);
+      // Función auxiliar para agregar cuerpo físico a un mesh
+      // Función auxiliar para agregar cuerpo físico a un mesh
+      // Función auxiliar para agregar cuerpo físico a un mesh
+      // Función auxiliar para agregar cuerpo físico a un mesh
+      function agregarCuerpo(mesh, tipo) {
+        const bbox = new THREE.Box3().setFromObject(mesh);
+        const size = new THREE.Vector3();
+        bbox.getSize(size);
 
-  // Define las dimensiones iniciales de la caja de colisión (semidimensiones)
-  let boxSizeX = size.x / 2;
-  let boxSizeY = size.y / 2; // <-- Esta es la dimensión Y que queremos ajustar
-  let boxSizeZ = size.z / 2;
+        // Define las dimensiones iniciales de la caja de colisión (semidimensiones)
+        let boxSizeX = size.x / 2;
+        let boxSizeY = size.y / 2; // <-- Esta es la dimensión Y que queremos ajustar
+        let boxSizeZ = size.z / 2;
 
-  const pos = mesh.getWorldPosition(new THREE.Vector3());
-  const quat = mesh.getWorldQuaternion(new THREE.Quaternion());
+        const pos = mesh.getWorldPosition(new THREE.Vector3());
+        const quat = mesh.getWorldQuaternion(new THREE.Quaternion());
 
-  let mass;
-  let material;
-  let adjustedPosY = pos.y; // Variable para la posición Y ajustada del cuerpo físico
+        let mass;
+        let material;
+        let adjustedPosX = pos.x;
+        let adjustedPosY = pos.y;
+        let adjustedPosZ = pos.z; // Variable para la posición Y ajustada del cuerpo físico
 
-  switch (tipo) {
-    case "colision":
-      mass = 0.000001; // Obstáculos fijos (casi inmóviles)
-      material = defaultMaterial;
+        switch (tipo) {
+          case "colision":
+            mass = 0.000001; // Obstáculos fijos (casi inmóviles)
+            material = defaultMaterial;
 
-      // *** AJUSTE DE DIMENSIÓN Y ALTURA PARA OBJETOS "colision" ***
+            // *** AJUSTE DE DIMENSIÓN Y ALTURA PARA OBJETOS "colision" ***
 
-      // Opción 1: Reducir la altura de la caja de colisión a la mitad
-      boxSizeY = 1.8; // Esto hace la caja de colisión en Y la mitad de alta
+            // Opción 1: Reducir la altura de la caja de colisión a la mitad
+            boxSizeY = 1.7; // Esto hace la caja de colisión en Y la mitad de alta
+            adjustedPosY = pos.y + boxSizeY; // pos.y (base visual) + nueva mitad de altura de la caja
+            boxSizeX = 1.7; // Esto hace la caja de colisión en Y la mitad de alta
+            adjustedPosX = pos.x + boxSizeX; // pos.y (base visual) + nueva mitad de altura de la caja
+            boxSizeZ = 1.7; // Esto hace la caja de colisión en Y la mitad de alta
+            adjustedPosZ = pos.z + boxSizeZ; // pos.y (base visual) + nueva mitad de altura de la caja
 
-      // Luego, ajusta la posición Y del cuerpo físico.
-      // Si el modelo visible se "hunde" la mitad, su base visual está en pos.y.
-      // Si ahora la caja es más pequeña, para que su base siga en pos.y,
-      // su centro debe estar en pos.y + la nueva mitad de la altura.
-      adjustedPosY = pos.y + boxSizeY; // pos.y (base visual) + nueva mitad de altura de la caja
+            // Puedes sumar un offset adicional si el modelo 3D tiene el origen diferente
+            // adjustedPosY = pos.y + boxSizeY + 0.1; // Ejemplo: sube la caja un poco más
 
-      // Puedes sumar un offset adicional si el modelo 3D tiene el origen diferente
-      // adjustedPosY = pos.y + boxSizeY + 0.1; // Ejemplo: sube la caja un poco más
+            break;
+          case "enemigo":
+            mass = 0.000001;
+            material = enemyMaterial;
+            boxSizeY = 40;
+            // No se ajustan dimensiones ni posición Y aquí.
+            adjustedPosY = pos.y; // El centro del cuerpo físico será el centro del mesh visible
+            break;
+          case "aliado":
+            mass = 0.000001;
+            material = allyMaterial;
+            boxSizeY = 1.8;
+            // No se ajustan dimensiones ni posición Y aquí.
+            adjustedPosY = pos.y;
+            break;
+          case "item":
+            mass = 0.000001;
+            material = itemMaterial;
+            boxSizeY = 1.8;
+            // No se ajustan dimensiones ni posición Y aquí.
+            adjustedPosY = pos.y;
+            break;
+          default:
+            mass = 0;
+            material = defaultMaterial;
+            // No se ajustan dimensiones ni posición Y aquí.
+            adjustedPosY = pos.y;
+            break;
+        }
 
-      break;
-    case "enemigo":
-      mass = 0.000001;
-      material = enemyMaterial;
-      boxSizeY = 1.8; 
-      // No se ajustan dimensiones ni posición Y aquí.
-      adjustedPosY = pos.y; // El centro del cuerpo físico será el centro del mesh visible
-      break;
-    case "aliado":
-      mass = 0.000001;
-      material = allyMaterial;
-           boxSizeY = 1.8; 
-      // No se ajustan dimensiones ni posición Y aquí.
-      adjustedPosY = pos.y;
-      break;
-    case "item":
-      mass = 0.000001;
-      material = itemMaterial;
-           boxSizeY = 1.8; 
-      // No se ajustan dimensiones ni posición Y aquí.
-      adjustedPosY = pos.y;
-      break;
-    default:
-      mass = 0;
-      material = defaultMaterial;
-      // No se ajustan dimensiones ni posición Y aquí.
-      adjustedPosY = pos.y;
-      break;
-  }
+        // Crea la forma de la caja con las dimensiones ajustadas
+        const shape = new CANNON.Box(
+          new CANNON.Vec3(boxSizeX / 1.5, boxSizeY, boxSizeZ / 1)
+        );
 
-  // Crea la forma de la caja con las dimensiones ajustadas
-  const shape = new CANNON.Box(
-    new CANNON.Vec3(boxSizeX, boxSizeY, boxSizeZ)
-  );
+        const body = new CANNON.Body({
+          mass: mass,
+          shape: shape, // <-- La forma con la dimensión Y modificada
+          material: material,
+          position: new CANNON.Vec3(adjustedPosX, adjustedPosY, adjustedPosZ), // <-- Posición Y ajustada
+          linearDamping: mass > 0 ? 0.9 : 0,
+          angularDamping: mass > 0 ? 0.9 : 0,
+        });
 
-  const body = new CANNON.Body({
-    mass: mass,
-    shape: shape, // <-- La forma con la dimensión Y modificada
-    material: material,
-    position: new CANNON.Vec3(pos.x, adjustedPosY, pos.z), // <-- Posición Y ajustada
-    linearDamping: mass > 0 ? 0.9 : 0,
-    angularDamping: mass > 0 ? 0.9 : 0,
-  });
+        function crearDebugBox(body, size) {
+          const geometry = new THREE.BoxGeometry(
+            size.x * 2,
+            size.y * 2,
+            size.z * 2
+          );
+          const material = new THREE.MeshBasicMaterial({
+            color: 0xff0000,
+            wireframe: true,
+          });
+          const box = new THREE.Mesh(geometry, material);
+          scene.add(box);
 
-  body.quaternion.copy(quat);
-  world.addBody(body);
-  dynamicObjects.push({ mesh, body, tipo });
-  console.log(`Cuerpo físico de tipo '${tipo}' creado para: ${mesh.name}`);
-}
+          // En cada frame, sincronizar con el cuerpo físico
+          debugBoxes.push({ mesh: box, body: body });
+        }
+        crearDebugBox(
+          body,
+          new THREE.Vector3(boxSizeX / 1.5, boxSizeY, boxSizeZ)
+        );
+
+        body.quaternion.copy(quat);
+        world.addBody(body);
+        dynamicObjects.push({ mesh, body, tipo });
+        console.log(
+          `Cuerpo físico de tipo '${tipo}' creado para: ${mesh.name}`
+        );
+      }
 
       world.addEventListener("beginContact", (event) => {
         const bodyA = event.bodyA;
@@ -573,7 +596,8 @@ function agregarCuerpo(mesh, tipo) {
         const isReturning = Math.abs(strafe) < Math.abs(smoothedStrafe);
         const smoothingSpeed = isReturning ? returnSpeed : turnSpeed;
 
-        smoothedStrafe += (strafe - smoothedStrafe) * deltaTime * smoothingSpeed;
+        smoothedStrafe +=
+          (strafe - smoothedStrafe) * deltaTime * smoothingSpeed;
 
         // Normalización lineal (de -1 a 1) a tiempos
         const normalized = (smoothedStrafe + 1) / 2; // -1 → 0, 1 → 1
@@ -611,7 +635,6 @@ function agregarCuerpo(mesh, tipo) {
           renderer.render(scene, camera);
           return;
         }
-
         // Actualizar físicas
         world.step(fixedTimeStep, deltaTime, maxSubSteps);
 
@@ -620,6 +643,10 @@ function agregarCuerpo(mesh, tipo) {
           obj.mesh.position.copy(obj.body.position);
           obj.mesh.quaternion.copy(obj.body.quaternion);
         });
+        for (const debug of debugBoxes) {
+          debug.mesh.position.copy(debug.body.position);
+          debug.mesh.quaternion.copy(debug.body.quaternion);
+        }
 
         // Sincronizar el modelo del avión con su cuerpo físico
         if (airplaneModel && airplaneBody) {
